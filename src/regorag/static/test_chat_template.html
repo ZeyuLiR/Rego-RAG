@@ -1,0 +1,210 @@
+<title>Rego 测试问答</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column; a quiet header with KB status, the conversation, a sticky composer. */
+:root {
+  --bg: #f6f8f8; --surface: #ffffff; --fg: #17201f; --muted: #5d6b69; --line: #dbe3e1;
+  --accent: #0f6e66; --accent-ink: #ffffff; --accent-soft: #e1f0ee;
+  --warn: #9a5b00; --warn-soft: #fbf0dd; --bad: #b3261e; --good: #1f7a3a;
+  --sans: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111716; --surface: #182120; --fg: #e6eeec; --muted: #9aa9a6; --line: #2a3634;
+  --accent: #5cc3b8; --accent-ink: #0b1514; --accent-soft: #1b3330;
+  --warn: #f0b45c; --warn-soft: #33281a; --bad: #ff8a80; --good: #7fd49a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111716; --surface: #182120; --fg: #e6eeec; --muted: #9aa9a6; --line: #2a3634;
+  --accent: #5cc3b8; --accent-ink: #0b1514; --accent-soft: #1b3330;
+  --warn: #f0b45c; --warn-soft: #33281a; --bad: #ff8a80; --good: #7fd49a; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--sans); }
+.wrap { max-width: 760px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 0; }
+header { display: grid; gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+h1 { margin: 0; font-size: 20px; font-weight: 600; text-wrap: balance; }
+.mode { font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.status { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; color: var(--muted); font-size: 13px; }
+.status b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+label.toggle { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.notice { margin-top: 4px; padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+#log { flex: 1; display: flex; flex-direction: column; gap: 18px; padding-block: 20px; }
+.empty { color: var(--muted); font-size: 14px; display: grid; gap: 8px; }
+.empty button { justify-self: start; }
+.q { align-self: flex-end; max-width: 85%; background: var(--accent-soft); padding: 10px 14px; border-radius: 12px 12px 2px 12px; white-space: pre-wrap; min-width: 0; }
+.a { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: grid; gap: 10px; min-width: 0; }
+.a .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.a .text.thinking { color: var(--muted); }
+.src { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.chip { font: 12px/1.4 var(--mono); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg); }
+.chip.draft { border-style: dashed; color: var(--warn); }
+.uncovered { color: var(--warn); font-size: 13px; }
+.fb { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.fb input { flex: 1 1 200px; min-width: 0; }
+.fb .saved { color: var(--good); }
+button { font: 500 14px var(--sans); border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 6px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.on-good { border-color: var(--good); color: var(--good); }
+button.on-bad { border-color: var(--bad); color: var(--bad); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=text], textarea { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+form { position: sticky; bottom: 0; background: var(--bg); display: flex; gap: 8px; align-items: flex-end;
+  padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); }
+form textarea { flex: 1; min-width: 0; min-height: 46px; max-height: 160px; resize: vertical; padding: 10px 12px; }
+.err { color: var(--bad); font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="mode">测试模式 · 不使用 API</span>
+    <h1>Rego 测试问答</h1>
+    <div class="status">
+      <span>已发布 <b id="nLive">0</b> 篇</span>
+      <span>草稿 <b id="nDraft">0</b> 篇</span>
+      <span>知识库版本 <b id="kbVer"></b></span>
+      <label class="toggle"><input type="checkbox" id="drafts"> 包含未审核草稿</label>
+    </div>
+    <div class="notice" id="noLive" hidden>知识库还没有已发布的文章，所有问题都会显示“未覆盖”。可以勾选“包含未审核草稿”先试答。</div>
+    <div class="notice" id="noSample" hidden>这个页面需要在 claude.ai 里打开才能提问。</div>
+  </header>
+
+  <div id="log">
+    <div class="empty" id="empty">
+      <div>像 clerk 一样提问，中文或英文都可以。回答只依据知识库，并标出来源。每个回答下面可以标记“答对了”或“有问题”，这些记录会用来建评估集。</div>
+      <button type="button" id="example">试一个例子：外州车转入 NSW 要准备什么？</button>
+    </div>
+  </div>
+
+  <form id="f">
+    <textarea id="q" placeholder="输入问题，Enter 发送，Shift+Enter 换行" required></textarea>
+    <button class="primary" id="send" type="submit">提问</button>
+    <button id="stop" type="button" hidden>停止</button>
+  </form>
+</div>
+
+<script type="application/json" id="kb">__KB_JSON__</script>
+<script type="application/json" id="rules">__RULES_JSON__</script>
+<script>
+const KB = JSON.parse(document.getElementById('kb').textContent);
+const RULES = JSON.parse(document.getElementById('rules').textContent);
+const $ = (id) => document.getElementById(id);
+const live = KB.articles.filter(a => a.live);
+$('nLive').textContent = live.length;
+$('nDraft').textContent = KB.articles.length - live.length;
+$('kbVer').textContent = KB.version;
+$('noLive').hidden = live.length > 0;
+try { $('drafts').checked = localStorage.getItem('rego-drafts') === '1'; } catch (e) {}
+$('drafts').addEventListener('change', () => { try { localStorage.setItem('rego-drafts', $('drafts').checked ? '1' : '0'); } catch (e) {} });
+
+let sample = null, db = null, ctl = null;
+const turns = [];  // [{role, content}] of this conversation, answers without the SOURCES line
+
+(async () => {
+  sample = await claude.use('sample');
+  if (!sample) { $('noSample').hidden = false; $('send').disabled = true; }
+  db = await claude.use('db');
+})();
+
+function kbText(includeDrafts) {
+  const arts = KB.articles.filter(a => a.live || includeDrafts);
+  if (!arts.length) return '(the knowledge base has no articles yet)';
+  return arts.map(a => a.live ? a.text : a.text.replace('<article ', '<article status="unreviewed draft" ')).join('\n\n');
+}
+
+function parseAnswer(text, includeDrafts) {
+  const re = /^\s*SOURCES:\s*(.*)$/gim;
+  let m, last = null;
+  while ((m = re.exec(text))) last = m;
+  if (!last) return { text: text.trim(), sources: [] };
+  const valid = new Map(KB.articles.filter(a => a.live || includeDrafts).map(a => [a.id, a]));
+  const raw = last[1].trim();
+  const sources = raw.toUpperCase() === 'NONE' ? [] :
+    raw.split(',').map(s => s.trim().replace(/^\[+|\]+$/g, '')).filter(s => valid.has(s.split('#')[0]));
+  return { text: (text.slice(0, last.index) + text.slice(last.index + last[0].length)).trim(), sources };
+}
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function copyFor(code) {
+  return ({ not_granted: '你没有允许这个页面使用 Claude，刷新页面后可以重新允许。',
+            rate_limited: '提问太频繁了，请稍等一会儿再问。',
+            cancelled: '' })[code] || '这次没有拿到回答，请再问一次。';
+}
+
+async function ask(question) {
+  $('empty').hidden = true;
+  const includeDrafts = $('drafts').checked;
+  $('log').appendChild(el('div', 'q', question));
+  const card = el('div', 'a'); const body = el('div', 'text thinking', '正在查知识库…');
+  card.appendChild(body); $('log').appendChild(card); card.scrollIntoView({ block: 'end' });
+
+  const first = RULES + '\n\n<knowledge_base>\n' + kbText(includeDrafts) + '\n</knowledge_base>\n\nQuestion: ';
+  const history = turns.slice(-8);
+  const input = history.length
+    ? [{ role: 'user', content: first + history[0].content }, ...history.slice(1), { role: 'user', content: question }]
+    : [{ role: 'user', content: first + question }];
+
+  $('send').disabled = true; $('stop').hidden = false; ctl = new AbortController();
+  try {
+    const { text } = await sample(input, { cache: false, signal: ctl.signal,
+      onText: ({ text }) => { body.classList.remove('thinking'); body.textContent = text.replace(/\n?\s*SOURCES:.*$/is, ''); } });
+    const ans = parseAnswer(text, includeDrafts);
+    body.classList.remove('thinking'); body.textContent = ans.text;
+    turns.push({ role: 'user', content: question }, { role: 'assistant', content: ans.text });
+    renderSources(card, ans.sources);
+    await logAndFeedback(card, { question, answer: ans.text, sources: ans.sources, covered: ans.sources.length > 0, includeDrafts });
+  } catch (e) {
+    body.classList.remove('thinking');
+    body.textContent = e && e.text ? e.text : '';
+    const msg = copyFor(e && e.code);
+    if (msg) card.appendChild(el('div', 'err', msg));
+  } finally {
+    $('send').disabled = !sample; $('stop').hidden = true;
+  }
+}
+
+function renderSources(card, sources) {
+  if (!sources.length) { card.appendChild(el('div', 'uncovered', '知识库未覆盖这个问题。')); return; }
+  const row = el('div', 'src'); row.appendChild(el('span', null, '来源'));
+  for (const s of sources) {
+    const a = KB.articles.find(x => x.id === s.split('#')[0]);
+    const chip = el('span', 'chip' + (a && !a.live ? ' draft' : ''), a ? a.title : s);
+    chip.title = s + (a && !a.live ? '（未审核草稿）' : '');
+    row.appendChild(chip);
+  }
+  card.appendChild(row);
+}
+
+async function logAndFeedback(card, rec) {
+  if (!db) return;  // feedback needs the shared store; the answer still shows without it
+  const id = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 17) + Math.random().toString(36).slice(2, 6);
+  const ref = db.doc('questions/' + id);
+  try { await ref.set({ ...rec, kbVersion: KB.version, askedAt: new Date().toISOString(), verdict: null, note: '' }); }
+  catch (e) { return; }
+  const fb = el('div', 'fb');
+  const good = el('button', null, '答对了'), bad = el('button', null, '有问题');
+  good.type = bad.type = 'button';
+  const note = el('input'); note.type = 'text'; note.id = 'note-' + id; note.placeholder = '哪里不对？正确答案是什么？（可选）'; note.hidden = true;
+  const save = el('button', null, '保存'); save.type = 'button'; save.hidden = true;
+  const saved = el('span', 'saved');
+  async function mark(verdict) {
+    good.classList.toggle('on-good', verdict === 'correct'); bad.classList.toggle('on-bad', verdict === 'wrong');
+    note.hidden = save.hidden = verdict !== 'wrong';
+    try { await ref.update({ verdict }); saved.textContent = verdict === 'correct' ? '已记录' : ''; } catch (e) { saved.textContent = '没保存上，再点一次'; }
+    if (verdict === 'wrong') note.focus();
+  }
+  good.onclick = () => mark('correct');
+  bad.onclick = () => mark('wrong');
+  save.onclick = async () => { try { await ref.update({ note: note.value.trim() }); saved.textContent = '已记录'; } catch (e) { saved.textContent = '没保存上，再点一次'; } };
+  fb.append(good, bad, note, save, saved);
+  card.appendChild(fb);
+}
+
+$('f').addEventListener('submit', (e) => { e.preventDefault(); const q = $('q').value.trim(); if (!q || !sample) return; $('q').value = ''; ask(q); });
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('f').requestSubmit(); } });
+$('stop').onclick = () => ctl && ctl.abort();
+$('example').onclick = () => { $('q').value = '外州车转入 NSW 要准备什么？'; $('f').requestSubmit(); };
+</script>

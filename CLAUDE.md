@@ -51,7 +51,13 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
 - [x] Q&A with citations, full-context/BM25 switch, gap logging
 - [x] Import (eml/pdf/docx/msg/txt) → proposal → apply, PII redaction
 - [x] Usage log + monthly budget cap, web chat, CLI, tests
-- [ ] Owner adds `.env` with an API key and imports the existing ~10-20 documents
+- [x] Test mode without an API key: `regorag test-page` builds a chat page published as a
+      claude.ai artifact (https://claude.ai/artifact/AUoFWFU8svZLYd2SCj7Gzz). It asks Claude on the
+      viewer's claude.ai account and stores each question/answer/verdict in the artifact's
+      `questions` collection (read it with ArtifactData). Rebuild and republish the same file
+      whenever kb/ changes.
+- [ ] Owner sends the existing ~10-20 documents; Claude drafts articles into inbox/ (test mode)
+- [ ] Later: owner adds `.env` with an API key
 - [ ] Owner reviews and publishes the glossary and imported articles
 - [ ] Build the 50-100 question eval set with real clerk questions (gate for phase 2)
 

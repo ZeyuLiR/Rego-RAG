@@ -80,6 +80,14 @@ def cmd_usage(args, settings: Settings) -> int:
     return 0
 
 
+def cmd_test_page(args, settings: Settings) -> int:
+    from .testpage import build_test_page
+
+    out = build_test_page(load_kb(settings.kb_dir), args.collection, Path(args.out))
+    print(f"已生成：{out}")
+    return 0
+
+
 def cmd_serve(args, settings: Settings) -> int:
     import uvicorn
 
@@ -117,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("usage", help="查看本月 API 用量与预算")
     s.add_argument("--month", help="YYYY-MM，默认本月")
     s.set_defaults(fn=cmd_usage)
+
+    s = sub.add_parser("test-page", help="生成测试模式网页（不用 API，在 claude.ai 里提问）")
+    s.add_argument("out", nargs="?", default="site/test-chat.html")
+    s.add_argument("--collection", default="rego")
+    s.set_defaults(fn=cmd_test_page)
 
     s = sub.add_parser("serve", help="启动网页聊天和 API")
     s.add_argument("--host", default="127.0.0.1")
