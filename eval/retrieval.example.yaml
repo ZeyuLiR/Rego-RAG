@@ -1,0 +1,9 @@
+# Retrieval test set: copy to eval/retrieval.yaml and replace with real clerk questions.
+# Run: regorag eval-retrieval eval/retrieval.yaml   (add --no-rewrite to skip model calls)
+# expect: the article ids (or section anchors) a good search must return.
+# query: optional fixed English search query; when present the question is not rewritten.
+- question: 外州车转入 NSW 需要哪些材料？
+  expect: [reg-interstate-transfer]
+- question: 续 rego 之前要检查什么？
+  expect: [reg-renewal]
+  query: registration renewal checks green slip pink slip

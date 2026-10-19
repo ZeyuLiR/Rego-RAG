@@ -10,7 +10,8 @@ from pathlib import Path
 
 from .kb import KnowledgeBase
 from .llm import LLM, text_of
-from .retrieval import Context, Retriever, build_retriever
+from .retrieval import MODES, Context, Retriever, build_retriever
+from .vectors import Embedder
 
 SYSTEM_PROMPT = """\
 You answer questions from rego (vehicle registration) clerks at a company in New South Wales, \
@@ -64,29 +65,42 @@ class QAService:
     effort: str = "medium"
     full_context_token_limit: int = 150_000
     gaps_log: Path | None = None
-    _retrievers: dict[str, Retriever] = field(default_factory=dict)
+    retrieval: str = "auto"  # default mode; see retrieval.MODES
+    embedder: Embedder | None = None
+    vector_dir: Path | None = None
+    _retrievers: dict[tuple[str, str], Retriever] = field(default_factory=dict)
 
-    def retriever(self, collection: str) -> Retriever:
-        if collection not in self._retrievers:
-            articles = self.kb.live(collection)
-            self._retrievers[collection] = build_retriever(articles, self.full_context_token_limit)
-        return self._retrievers[collection]
+    def retriever(self, collection: str, mode: str | None = None) -> Retriever:
+        mode = mode or self.retrieval
+        if mode not in MODES:
+            raise ValueError(f"unknown retrieval mode {mode!r}; use one of {', '.join(MODES)}")
+        if (collection, mode) not in self._retrievers:
+            self._retrievers[(collection, mode)] = build_retriever(
+                self.kb.live(collection), self.full_context_token_limit, mode, self.embedder,
+                self.vector_dir / f"{collection}.json" if self.vector_dir else None)
+        return self._retrievers[(collection, mode)]
+
+    def search(self, question: str, collection: str = "rego", mode: str | None = None,
+               history: list[Turn] | None = None, query: str | None = None) -> tuple[Context, str | None]:
+        """What the model would read for this question, without answering it.
+
+        Section search first rewrites the question into an English query (one cheap model
+        call) unless `query` is given."""
+        retriever = self.retriever(collection, mode)
+        if retriever.mode == "full":
+            return retriever.retrieve(question), None
+        query = query or self._rewrite(question, collection, history or [])
+        return retriever.retrieve(query), query
 
     def glossary(self, collection: str) -> str:
         g = next((a for a in self.kb.live(collection) if a.meta.category == "glossary"), None)
         return g.body if g else ""
 
     def ask(self, question: str, collection: str = "rego",
-            history: list[Turn] | None = None) -> Answer:
+            history: list[Turn] | None = None, mode: str | None = None) -> Answer:
         history = history or []
         calls_before = len(self.llm.usage.records())
-        retriever = self.retriever(collection)
-        search_query = None
-        if retriever.mode == "full":
-            context = retriever.retrieve(question)
-        else:
-            search_query = self._rewrite(question, collection, history)
-            context = retriever.retrieve(search_query)
+        context, search_query = self.search(question, collection, mode, history)
 
         response = self.llm.create(
             "qa",

@@ -10,7 +10,11 @@
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
   main { max-width:760px; margin:0 auto; padding:16px; display:flex; flex-direction:column; min-height:100vh; }
-  h1 { font-size:18px; margin:4px 0 12px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:4px 0 12px; }
+  h1 { font-size:18px; margin:0; }
+  header label { color:var(--muted); font-size:13px; display:flex; align-items:center; gap:6px; }
+  select { padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font:inherit; font-size:13px; }
+  .tag { display:inline-block; font-size:12px; color:var(--accent); border:1px solid var(--line); border-radius:6px; padding:0 6px; margin-bottom:6px; }
   #log { flex:1; display:flex; flex-direction:column; gap:12px; }
   .msg { padding:10px 14px; border:1px solid var(--line); border-radius:10px; white-space:pre-wrap; }
   .me { background:var(--me); align-self:flex-end; max-width:85%; }
@@ -24,7 +28,19 @@
 </head>
 <body>
 <main>
-  <h1>Rego 知识库助手</h1>
+  <header>
+    <h1>Rego 知识库助手</h1>
+    <label>检索方式
+      <select id="mode">
+        <option value="">默认</option>
+        <option value="full">全文（整个知识库）</option>
+        <option value="bm25">关键词（BM25）</option>
+        <option value="vector">向量</option>
+        <option value="hybrid">混合（关键词 + 向量）</option>
+        <option value="compare">对比全部四种</option>
+      </select>
+    </label>
+  </header>
   <div id="log"></div>
   <form id="f">
     <textarea id="q" placeholder="用中文或英文提问，例如：外州车转入 NSW 需要哪些材料？" required></textarea>
@@ -35,25 +51,45 @@
 const log = document.getElementById('log'), q = document.getElementById('q'), b = document.getElementById('b');
 const history = [];
 function add(text, cls) { const d = document.createElement('div'); d.className = 'msg ' + (cls || ''); d.textContent = text; log.appendChild(d); d.scrollIntoView(); return d; }
+const modeSel = document.getElementById('mode');
+const MODES = { full:'全文', bm25:'关键词', vector:'向量', hybrid:'混合' };
+try { modeSel.value = localStorage.getItem('regorag-mode') || ''; } catch (e) {}
+modeSel.addEventListener('change', () => { try { localStorage.setItem('regorag-mode', modeSel.value); } catch (e) {} });
+
+async function ask(question, retrieval, showTag) {
+  const box = add('正在查找…');
+  try {
+    const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question, history: showTag ? [] : history, retrieval: retrieval || null }) });
+    const data = await r.json();
+    box.textContent = '';
+    if (showTag) { const t = document.createElement('div'); t.className = 'tag'; t.textContent = MODES[retrieval]; box.appendChild(t); }
+    if (!r.ok) { box.appendChild(document.createTextNode(data.detail || '出错了')); box.classList.add('warn'); return null; }
+    box.appendChild(document.createTextNode(data.answer));
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const srcs = Object.entries(data.sources).map(([id, s]) => s.title + '（' + s.path + '）');
+    meta.textContent = (data.covered ? '来源：' + srcs.join('；') : '知识库未覆盖这个问题，已记录待补充。')
+      + ' · ' + (MODES[data.mode] || data.mode) + (data.search_query ? ' · 检索词：' + data.search_query : '')
+      + ' · 约 $' + data.cost_usd.toFixed(4);
+    if (!data.covered) meta.classList.add('warn');
+    box.appendChild(meta);
+    return data;
+  } catch (err) { box.textContent = '连接失败：' + err; box.classList.add('warn'); return null; }
+}
+
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   const question = q.value.trim(); if (!question) return;
   add(question, 'me'); q.value = ''; b.disabled = true;
-  const pending = add('正在查找…');
   try {
-    const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ question, history }) });
-    const data = await r.json();
-    if (!r.ok) { pending.textContent = data.detail || '出错了'; pending.classList.add('warn'); return; }
-    pending.textContent = data.answer;
-    const meta = document.createElement('div'); meta.className = 'meta';
-    const srcs = Object.entries(data.sources).map(([id, s]) => s.title + '（' + s.path + '）');
-    meta.textContent = data.covered ? '来源：' + srcs.join('；') : '知识库未覆盖这个问题，已记录待补充。';
-    if (!data.covered) meta.classList.add('warn');
-    pending.appendChild(meta);
-    history.push({ role:'user', content:question }, { role:'assistant', content:data.answer });
-  } catch (err) { pending.textContent = '连接失败：' + err; pending.classList.add('warn'); }
-  finally { b.disabled = false; q.focus(); }
+    if (modeSel.value === 'compare') {
+      // Each mode answers the question on its own, without earlier turns, so they are comparable.
+      for (const m of Object.keys(MODES)) await ask(question, m, true);
+    } else {
+      const data = await ask(question, modeSel.value);
+      if (data) history.push({ role:'user', content:question }, { role:'assistant', content:data.answer });
+    }
+  } finally { b.disabled = false; q.focus(); }
 });
 </script>
 </body>

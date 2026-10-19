@@ -22,6 +22,10 @@ Key decisions (confirmed by the owner, 2026-10-19):
 - Clerks use Teams and Outlook: a Teams bot is phase 3; import accepts `.eml`/`.msg`.
 - ~10-20 source documents today, so Q&A sends the whole live collection with prompt caching and
   switches to BM25 retrieval above `REGORAG_FULL_CONTEXT_TOKEN_LIMIT`.
+- Retrieval mode is selectable (`REGORAG_RETRIEVAL` = auto|full|bm25|vector|hybrid, or per question
+  from the chat page / `--retrieval`). Vector search is optional (`.[vector]` extra, local fastembed
+  multilingual model, JSON cache in `data/vectors/`); default stays `auto`. The owner wants to
+  compare with and without vectors before deciding.
 - A `sales` collection will come later: every feature is per collection (`config/collections.yaml`).
 
 ## Commands
@@ -39,7 +43,8 @@ owner's go-ahead: they cost money or plan usage. `regorag usage` shows spend so 
 ## Code map
 
 - `src/regorag/kb.py` — article parsing, validation, sections, `is_live`
-- `src/regorag/retrieval.py` — `FullContextRetriever`, `BM25Retriever`, `build_retriever`
+- `src/regorag/retrieval.py` — `FullContextRetriever`, `BM25Retriever`, `VectorRetriever`, `HybridRetriever`, `build_retriever`
+- `src/regorag/vectors.py` — `FastEmbedder` (lazy, local), `VectorStore` (hash-keyed JSON cache)
 - `src/regorag/qa.py` — prompts and `QAService.ask`
 - `src/regorag/llm.py` — the only place that calls Claude (budget check, `fallbacks="default"`, usage log)
 - `src/regorag/claude_code.py` — `claude -p` client with the SDK's `beta.messages.create/parse` shape
@@ -62,6 +67,9 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       `questions` collection (read it with ArtifactData). Rebuild and republish the same file
       whenever kb/ changes.
 - [x] Claude Code backend: the real system runs without an API key (verified end to end)
+- [x] Optional vector/hybrid retrieval with a per-question switch, `regorag compare`,
+      `regorag eval-retrieval` (hit rate/MRR). Not yet run with the real embedding model
+      (the cloud container cannot download it); tests use a fake embedder.
 - [x] Web import page `/import`: drag multiple files or paste email text → background extraction
       (one job at a time) → review queue on the same page (edit drafts, approve selected, reject).
       Approve publishes, reloads the KB and git-commits kb/. `REGORAG_ADMIN_TOKEN` guards it.
@@ -74,7 +82,7 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
 Phase 2 (upload and review UI): basic version done (`/import`); still to do: forward-to-mailbox
 intake, side-by-side source/diff view.
 Phase 3: feedback buttons, review-date reminders, Teams bot, permissions per role.
-Phase 4 (optional): vector index behind `Retriever`, contradiction scan, MCP server.
+Phase 4 (optional): contradiction scan, MCP server, a vector database server behind `VectorStore` if the KB grows.
 
 Keep this Progress section current at the end of each work session so a new session (cloud or
 local) can pick up from here.

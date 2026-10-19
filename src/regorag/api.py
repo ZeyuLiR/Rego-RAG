@@ -25,13 +25,16 @@ from .ingest import (apply_proposal, close_proposal, list_proposals, pasted_sour
 from .kb import KBError, load_kb
 from .llm import RefusedError
 from .qa import Turn
+from .retrieval import MODES
 from .usage import BudgetExceeded
+from .vectors import VectorSearchUnavailable
 
 
 class AskRequest(BaseModel):
     question: str
     collection: str = "rego"
     history: list[dict] = []
+    retrieval: str | None = None  # override the default mode for this question
 
 
 class ApplyRequest(BaseModel):
@@ -92,7 +95,7 @@ def create_app(regorag_app=None) -> FastAPI:
     @api.get("/api/health")
     def health() -> dict:
         a = get()
-        return {"ok": True, "backend": a.settings.llm_backend,
+        return {"ok": True, "backend": a.settings.llm_backend, "retrieval": a.settings.retrieval,
                 "collections": {c: len(a.kb.live(c)) for c in a.collections}}
 
     @api.post("/api/ask")
@@ -100,10 +103,14 @@ def create_app(regorag_app=None) -> FastAPI:
         a = get()
         if req.collection not in a.collections:
             raise HTTPException(404, f"unknown collection {req.collection}")
+        if req.retrieval and req.retrieval not in MODES:
+            raise HTTPException(400, f"检索方式只能是 {', '.join(MODES)}")
         history = [Turn(t["role"], t["content"]) for t in req.history[-10:]
                    if t.get("role") in {"user", "assistant"} and t.get("content")]
         try:
-            ans = a.qa.ask(req.question, req.collection, history)
+            ans = a.qa.ask(req.question, req.collection, history, req.retrieval)
+        except VectorSearchUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
         except BudgetExceeded as exc:
             raise HTTPException(429, str(exc)) from exc
         except RefusedError as exc:
@@ -115,7 +122,7 @@ def create_app(regorag_app=None) -> FastAPI:
                 links[src] = {"title": art.meta.title,
                               "path": str(art.path.relative_to(a.settings.kb_dir))}
         return {"answer": ans.text, "sources": links, "covered": ans.covered,
-                "mode": ans.mode, "cost_usd": ans.cost_usd}
+                "mode": ans.mode, "search_query": ans.search_query, "cost_usd": ans.cost_usd}
 
     @api.get("/api/usage")
     def usage() -> dict:

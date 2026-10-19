@@ -34,6 +34,9 @@ class Settings:
     monthly_budget_usd: float = 50.0
     full_context_token_limit: int = 150_000
     llm_backend: str = "api"  # "api" or "claude-code"
+    retrieval: str = "auto"  # auto | full | bm25 | vector | hybrid
+    embed_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    vector_dir: Path = field(default_factory=lambda: REPO_ROOT / "data" / "vectors")
     # When set, the import and review pages require this token. Set it before the web
     # server is reachable by anyone other than reviewers.
     admin_token: str = ""
@@ -60,4 +63,7 @@ class Settings:
             llm_backend=env.get("REGORAG_LLM_BACKEND")
             or ("api" if env.get("ANTHROPIC_API_KEY") else "claude-code"),
             admin_token=env.get("REGORAG_ADMIN_TOKEN", ""),
+            retrieval=env.get("REGORAG_RETRIEVAL", cls.retrieval),
+            embed_model=env.get("REGORAG_EMBED_MODEL", cls.embed_model),
+            vector_dir=Path(env.get("REGORAG_VECTOR_DIR", root / "data" / "vectors")),
         )

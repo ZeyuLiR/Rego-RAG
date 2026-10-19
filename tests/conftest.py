@@ -61,4 +61,30 @@ def workspace(tmp_path):
         encoding="utf-8")
     return Settings(root=tmp_path, kb_dir=tmp_path / "kb", config_dir=tmp_path / "config",
                     inbox_dir=tmp_path / "inbox", usage_log=tmp_path / "data" / "usage.jsonl",
-                    monthly_budget_usd=10.0)
+                    vector_dir=tmp_path / "data" / "vectors", monthly_budget_usd=10.0)
+
+
+class FakeEmbedder:
+    """Hashed bag of words with a few Chinese -> English synonyms, standing in for a real
+    multilingual model. Counts how many texts it embedded."""
+
+    name = "fake-embedder"
+    SYNONYMS = {"外州": "interstate", "材料": "need", "续期": "renewal", "绿单": "green"}
+
+    def __init__(self):
+        self.embedded = 0
+
+    def embed(self, texts):
+        import re
+        import zlib
+
+        self.embedded += len(texts)
+        out = []
+        for t in texts:
+            for zh, en in self.SYNONYMS.items():
+                t = t.replace(zh, f" {en} ")
+            v = [0.0] * 64
+            for w in re.findall(r"[a-z]+", t.lower()):
+                v[zlib.crc32(w.encode()) % 64] += 1.0
+            out.append(v)
+        return out

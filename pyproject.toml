@@ -16,6 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]
 site = ["mkdocs-material>=9.5"]
+# Optional vector search: a local multilingual embedding model, no API cost.
+vector = ["fastembed>=0.7"]
 
 [project.scripts]
 regorag = "regorag.cli:main"

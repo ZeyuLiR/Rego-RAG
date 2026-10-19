@@ -77,6 +77,33 @@ src/regorag/                               代码
 - 只读取 `status: published` 且已到生效日期的文章。
 - 回答必须引用文章 id；知识库没有的内容会直接说不知道，并记录到 `data/gaps.jsonl`。
 
+## 检索方式与向量检索（可选，默认不用）
+
+`.env` 里的 `REGORAG_RETRIEVAL` 决定模型读什么，聊天页右上角的「检索方式」可以按次覆盖：
+
+| 方式 | 说明 |
+|---|---|
+| `auto`（默认） | 知识库小时用 `full`，超过上限用 `bm25` |
+| `full` 全文 | 模型读整个知识库 |
+| `bm25` 关键词 | 问题先改写成英文检索词，再按关键词找相关小节 |
+| `vector` 向量 | 按意思找相关小节；多语言模型，中文问题也能直接匹配英文资料 |
+| `hybrid` 混合 | 关键词和向量两路结果合并（RRF） |
+
+向量模型在本机运行（fastembed，CPU 即可，不花 API 费用），第一次使用时下载约 220 MB：
+
+```bash
+.venv/bin/pip install -e ".[vector]"
+.venv/bin/regorag index                     # 预先建立向量索引（data/vectors/）
+```
+
+对比差别的三种办法：
+
+- 聊天页选「对比全部四种」：同一个问题用四种方式各回答一次，并排显示来源、检索词和费用（费用是四倍）。
+- `regorag compare "外州车转入要什么材料" --query "interstate transfer documents"`：只看每种方式找到哪些小节，给了 `--query` 就不调用模型；加 `--answer` 再让每种方式回答。
+- `regorag eval-retrieval eval/retrieval.yaml`：用问题集给 bm25 / vector / hybrid 打分（命中率、MRR），格式见 `eval/retrieval.example.yaml`；加 `--no-rewrite` 不调用模型。
+
+向量索引按小节内容的哈希缓存，发布新文章后只为改动的小节重新计算。现在资料少，用一个 JSON 文件就够；以后资料多了可以在 `vectors.py` 的 `VectorStore` 后面换成 LanceDB 或 pgvector，问答代码不用改。
+
 ## 用量与费用
 
 每次调用（两种方式都算）都记入 `data/usage.jsonl`（估算费用）。`REGORAG_MONTHLY_BUDGET_USD` 设定月度上限，
