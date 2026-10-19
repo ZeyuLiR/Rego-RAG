@@ -12,7 +12,8 @@ rego clerk 用中文或英文提问，助手只根据**审核过的知识库**�
 | 检查知识库格式、列出到期需复核的文章 | `regorag validate` |
 | 命令行提问 | `regorag ask "外州车转入需要什么材料？"` |
 | 网页聊天（clerk 用）| `regorag serve`，浏览器打开 http://127.0.0.1:8000 |
-| 从邮件 / PDF / Word 生成修改提案 | `regorag import 文件1.pdf 文件2.eml` |
+| **导入与审核网页**：拖入多个文件或粘贴邮件文字，整理后在同一页通过或驳回 | `regorag serve`，打开 http://127.0.0.1:8000/import |
+| 命令行导入（同样的流程）| `regorag import 文件1.pdf 文件2.eml` |
 | 审核通过提案并发布 | `regorag apply inbox/<提案文件夹> --reviewer Zeyu` |
 | 直接发布手写的草稿 | `regorag publish kb/rego/.../xxx.md --reviewer Zeyu` |
 | 查看本月 API 用量与预算 | `regorag usage` |
@@ -51,6 +52,16 @@ src/regorag/                               代码
 ```
 
 ## 更新流程
+
+最简单的方式是网页：打开 `/import`，把文件拖进去（可以一次多个），或者把邮件文字直接粘贴进去，
+点「开始整理」。整理好的提案出现在下面的「待审核」里：每处改动都附原文依据，草稿可以直接在页面上修改，
+勾选要通过的改动后点「通过所选并发布」，问答页立刻就能用到，同时自动记一次 Git 提交。
+驳回的提案移到 `inbox/_rejected/`，不会删除。
+
+> 服务器只在你自己电脑上运行（127.0.0.1）时不需要口令。让别人也能访问之前，务必在 `.env` 里设置
+> `REGORAG_ADMIN_TOKEN`，否则任何能打开网页的人都能导入和发布。
+
+命令行方式：
 
 1. `regorag import 通知.pdf` → 生成 `inbox/<日期>-<文件名>/`，里面有 `REVIEW.md`（改什么、为什么、原文依据）和 `drafts/`（完整的文章草稿）。
 2. 读 `REVIEW.md`，需要的话直接改 `drafts/` 里的草稿。不同意就删掉整个文件夹。

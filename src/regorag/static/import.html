@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资料导入与审核</title>
+<style>
+/* Layout: one working column. Import on top (drop zone + paste box + progress), the review queue below. */
+:root {
+  --bg: #f5f7f7; --surface: #ffffff; --fg: #17201f; --muted: #5d6b69; --line: #d9e1df;
+  --accent: #0f6e66; --accent-ink: #ffffff; --accent-soft: #e1f0ee;
+  --warn: #9a5b00; --warn-soft: #fbf0dd; --bad: #b3261e; --bad-soft: #fbe5e3; --good: #1f7a3a; --good-soft: #e2f3e7;
+  --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Consolas, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #111716; --surface: #182120; --fg: #e6eeec; --muted: #9aa9a6; --line: #2a3634;
+  --accent: #5cc3b8; --accent-ink: #0b1514; --accent-soft: #1b3330;
+  --warn: #f0b45c; --warn-soft: #33281a; --bad: #ff8a80; --bad-soft: #3a1f1d; --good: #7fd49a; --good-soft: #1c3324; color-scheme: dark } }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--sans); }
+main { max-width: 880px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+h1 { margin: 0; font-size: 21px; font-weight: 600; }
+h2 { margin: 0; font-size: 16px; font-weight: 600; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+#drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px 16px; text-align: center; cursor: pointer; display: grid; gap: 4px; }
+#drop.over { border-color: var(--accent); background: var(--accent-soft); }
+#drop b { font-size: 16px; font-weight: 600; }
+.files { display: flex; flex-wrap: wrap; gap: 6px; }
+.file { display: inline-flex; gap: 6px; align-items: center; font: 13px var(--mono); border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 10px; max-width: 100%; }
+.file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file button { border: 0; background: none; color: var(--muted); padding: 0 6px; font-size: 15px; }
+textarea, input[type=text], input[type=password], select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+textarea { width: 100%; resize: vertical; }
+#paste { min-height: 110px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row .grow { flex: 1 1 auto; }
+button { font: 500 14px var(--sans); border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 7px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.danger { color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.jobs { display: grid; gap: 6px; }
+.job { display: flex; gap: 10px; align-items: baseline; font-size: 14px; flex-wrap: wrap; }
+.job .name { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.queued { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.pill.running { background: var(--accent-soft); color: var(--accent); }
+.pill.done { background: var(--good-soft); color: var(--good); }
+.pill.error { background: var(--bad-soft); color: var(--bad); }
+.err { color: var(--bad); font-size: 13px; }
+.ok { color: var(--good); font-size: 13px; }
+.proposal { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 10px; }
+.proposal:first-of-type { border-top: 0; padding-top: 0; }
+.change { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.change.off { opacity: .6; }
+.change-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.change-head label { display: inline-flex; gap: 8px; align-items: baseline; font-weight: 600; cursor: pointer; }
+.id { font: 12px var(--mono); color: var(--muted); }
+.act { font-size: 12px; padding: 1px 8px; border-radius: 4px; font-weight: 600; }
+.act.new { background: var(--good-soft); color: var(--good); }
+.act.update { background: var(--accent-soft); color: var(--accent); }
+.act.retire, .act.conflict { background: var(--bad-soft); color: var(--bad); }
+.act.duplicate { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+blockquote { margin: 0; padding: 4px 10px; border-left: 3px solid var(--line); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+details summary { cursor: pointer; color: var(--accent); font-size: 14px; }
+details textarea { font: 13px/1.5 var(--mono); min-height: 260px; margin-top: 8px; }
+.empty { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>资料导入与审核</h1>
+    <span class="muted"><a href="/">去问答页</a> · <span id="backend"></span></span>
+  </header>
+
+  <section class="panel" id="auth" hidden>
+    <h2>需要管理口令</h2>
+    <div class="row"><input type="password" id="token" class="grow" placeholder="REGORAG_ADMIN_TOKEN"><button class="primary" id="tokenGo" type="button">进入</button></div>
+  </section>
+
+  <section class="panel" id="importPanel">
+    <h2>导入资料</h2>
+    <div id="drop" tabindex="0" role="button" aria-label="选择或拖入文件">
+      <b>把文件拖到这里，可以一次放多个</b>
+      <span class="muted" id="acceptHint">PDF、Word、Outlook 邮件（.msg / .eml）、文本，也可以点这里选择文件</span>
+    </div>
+    <input type="file" id="picker" multiple hidden>
+    <div class="files" id="files"></div>
+    <textarea id="paste" placeholder="或者把邮件、通知的文字直接粘贴在这里（主题行会用作名字）"></textarea>
+    <div class="row">
+      <label class="muted" for="collection">放进</label>
+      <select id="collection"></select>
+      <span class="grow"></span>
+      <button class="primary" id="go" type="button" disabled>开始整理</button>
+    </div>
+    <div class="err" id="importErr"></div>
+    <div class="jobs" id="jobs"></div>
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <h2 class="grow">待审核 <span id="count" class="muted"></span></h2>
+      <label class="muted" for="reviewer">审核人</label>
+      <select id="reviewer"></select>
+    </div>
+    <div id="queue"><div class="empty">加载中…</div></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+let staged = [];
+let polling = null;
+
+async function call(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {}, { 'X-Admin-Token': store.get('rego-admin-token') });
+  const r = await fetch(path, Object.assign({}, opts, { headers }));
+  if (r.status === 401) { $('auth').hidden = false; throw new Error('需要管理口令'); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || ('出错了（' + r.status + '）'));
+  return body;
+}
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+// ---------------------------------------------------------------- import
+function renderStaged() {
+  const box = $('files'); box.replaceChildren();
+  staged.forEach((f, i) => {
+    const chip = el('span', 'file'); chip.append(el('span', null, f.name));
+    const x = el('button', null, '×'); x.type = 'button'; x.title = '移除'; x.onclick = () => { staged.splice(i, 1); renderStaged(); };
+    chip.append(x); box.append(chip);
+  });
+  updateGo();
+}
+function updateGo() {
+  const n = staged.length + ($('paste').value.trim() ? 1 : 0);
+  $('go').disabled = n === 0;
+  $('go').textContent = n > 1 ? `开始整理（${n} 份）` : '开始整理';
+}
+function addFiles(list) { for (const f of list) if (!staged.some(s => s.name === f.name && s.size === f.size)) staged.push(f); renderStaged(); }
+const drop = $('drop');
+drop.onclick = () => $('picker').click();
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('picker').click(); } };
+$('picker').onchange = (e) => { addFiles(e.target.files); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => addFiles(e.dataTransfer.files));
+// Dropping anywhere on the page should not open the file in the browser.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => { e.preventDefault(); if (e.target !== drop && !drop.contains(e.target)) addFiles(e.dataTransfer.files); });
+$('paste').addEventListener('input', updateGo);
+
+$('go').onclick = async () => {
+  $('importErr').textContent = ''; $('go').disabled = true;
+  const fd = new FormData();
+  staged.forEach(f => fd.append('files', f, f.name));
+  fd.append('text', $('paste').value);
+  fd.append('collection', $('collection').value);
+  try {
+    await call('/api/import', { method: 'POST', body: fd });
+    staged = []; $('paste').value = ''; renderStaged();
+    pollJobs();
+  } catch (e) { $('importErr').textContent = e.message; updateGo(); }
+};
+
+const STATUS = { queued: '排队中', running: '正在整理', done: '已完成', error: '出错' };
+async function pollJobs() {
+  clearTimeout(polling);
+  let jobs = [];
+  try { jobs = (await call('/api/import/jobs')).jobs; } catch (e) { return; }
+  const box = $('jobs'); box.replaceChildren();
+  for (const j of jobs.slice(0, 20)) {
+    const row = el('div', 'job');
+    row.append(el('span', 'pill ' + j.status, STATUS[j.status]), el('span', 'name', j.name));
+    if (j.status === 'done') row.append(el('span', 'muted', j.changes ? `${j.changes} 处改动，见下方待审核` : '没有需要修改的内容，见下方'));
+    if (j.status === 'error') row.append(el('span', 'err', j.error));
+    box.append(row);
+  }
+  const busy = jobs.some(j => j.status === 'queued' || j.status === 'running');
+  const doneNow = jobs.filter(j => j.status === 'done').length;
+  if (doneNow !== pollJobs.done) { pollJobs.done = doneNow; loadQueue(); }
+  if (busy) polling = setTimeout(pollJobs, 2500);
+}
+
+// ---------------------------------------------------------------- review queue
+const ACT = { new: '新增', update: '更新', retire: '作废', duplicate: '重复', conflict: '冲突' };
+const APPLIES = new Set(['new', 'update', 'retire']);
+
+async function loadQueue() {
+  let props;
+  try { props = (await call('/api/proposals')).proposals; } catch (e) { $('queue').replaceChildren(el('div', 'err', e.message)); return; }
+  $('count').textContent = props.length ? `（${props.length}）` : '';
+  const box = $('queue'); box.replaceChildren();
+  if (!props.length) { box.append(el('div', 'empty', '没有待审核的提案。导入资料后，整理结果会出现在这里。')); return; }
+  props.forEach(p => box.append(renderProposal(p)));
+}
+
+function renderProposal(p) {
+  const wrap = el('div', 'proposal');
+  const head = el('div', 'row');
+  head.append(el('strong', 'grow', p.source), el('span', 'muted', p.name.slice(0, 10)));
+  wrap.append(head, el('div', null, p.source_summary_zh));
+  const picks = [];
+  if (!p.changes.length) wrap.append(el('div', 'muted', '模型认为这份资料不需要修改知识库。可以直接驳回归档。'));
+  for (const c of p.changes) {
+    const card = el('div', 'change');
+    const h = el('div', 'change-head');
+    const label = el('label');
+    const cb = el('input'); cb.type = 'checkbox'; cb.id = `pick-${p.name}-${c.article_id}`;
+    cb.checked = APPLIES.has(c.action); cb.disabled = !APPLIES.has(c.action);
+    cb.onchange = () => card.classList.toggle('off', !cb.checked);
+    if (cb.checked) picks.push({ id: c.article_id, cb });
+    label.append(cb, el('span', 'act ' + c.action, ACT[c.action] || c.action), el('span', null, c.title));
+    h.append(label, el('span', 'id', c.article_id));
+    card.append(h, el('div', null, c.summary_zh));
+    if (c.effective_from) card.append(el('div', 'muted', '生效日期：' + c.effective_from));
+    for (const q of c.evidence || []) card.append(el('blockquote', null, q));
+    if (c.draft != null) {
+      const d = el('details'); d.append(el('summary', null, '查看或修改草稿'));
+      const ta = el('textarea'); ta.id = `draft-${p.name}-${c.article_id}`; ta.value = c.draft; ta.spellcheck = false;
+      const save = el('button', null, '保存修改'); save.type = 'button';
+      const msg = el('span', 'muted');
+      save.onclick = async () => {
+        msg.className = 'muted'; msg.textContent = '保存中…';
+        try { await call(`/api/proposals/${encodeURIComponent(p.name)}/drafts/${encodeURIComponent(c.article_id)}`,
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: ta.value }) });
+          msg.className = 'ok'; msg.textContent = '已保存'; }
+        catch (e) { msg.className = 'err'; msg.textContent = e.message; }
+      };
+      const r = el('div', 'row'); r.append(save, msg);
+      d.append(ta, r); card.append(d);
+    }
+    wrap.append(card);
+  }
+  const actions = el('div', 'row');
+  const approve = el('button', 'primary', '通过所选并发布'); approve.type = 'button';
+  const reject = el('button', 'danger', '驳回'); reject.type = 'button';
+  const msg = el('span', 'muted grow');
+  approve.disabled = !picks.length;
+  approve.onclick = async () => {
+    const reviewer = $('reviewer').value;
+    const only = picks.filter(x => x.cb.checked).map(x => x.id);
+    if (!only.length) { msg.className = 'err grow'; msg.textContent = '请至少勾选一项。'; return; }
+    approve.disabled = reject.disabled = true; msg.className = 'muted grow'; msg.textContent = '发布中…';
+    try {
+      const r = await call(`/api/proposals/${encodeURIComponent(p.name)}/apply`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewer, only }) });
+      msg.className = 'ok grow';
+      msg.textContent = `已发布 ${r.published.length} 篇` + (r.commit ? `，已记入 Git（${r.commit}）` : '') + '。问答页马上就能用到。';
+      setTimeout(loadQueue, 2500);
+    } catch (e) { msg.className = 'err grow'; msg.textContent = e.message; approve.disabled = reject.disabled = false; }
+  };
+  let armed = false;
+  reject.onclick = async () => {
+    if (!armed) { armed = true; reject.textContent = '确认驳回？'; setTimeout(() => { armed = false; reject.textContent = '驳回'; }, 4000); return; }
+    approve.disabled = reject.disabled = true;
+    try { await call(`/api/proposals/${encodeURIComponent(p.name)}/reject`, { method: 'POST' }); wrap.remove(); loadQueue(); }
+    catch (e) { msg.className = 'err grow'; msg.textContent = e.message; approve.disabled = reject.disabled = false; }
+  };
+  actions.append(msg, reject, approve);
+  wrap.append(actions);
+  return wrap;
+}
+
+// ---------------------------------------------------------------- start
+async function start() {
+  let info;
+  try { info = await call('/api/admin/info'); } catch (e) { return; }
+  $('auth').hidden = true;
+  $('backend').textContent = info.backend === 'claude-code' ? '通过 Claude Code 调用（不走 API）' : '通过 API 调用';
+  $('acceptHint').textContent = `支持 ${info.accept.join(' ')}，每个不超过 ${info.max_mb} MB。也可以点这里选择文件。`;
+  $('picker').accept = info.accept.join(',');
+  $('collection').replaceChildren(...Object.entries(info.collections).map(([k, t]) => { const o = el('option', null, t); o.value = k; return o; }));
+  $('reviewer').replaceChildren(...info.reviewers.map(n => { const o = el('option', null, n); o.value = n; return o; }));
+  if (store.get('rego-reviewer')) $('reviewer').value = store.get('rego-reviewer');
+  loadQueue(); pollJobs();
+}
+$('reviewer').onchange = () => store.set('rego-reviewer', $('reviewer').value);
+$('tokenGo').onclick = () => { store.set('rego-admin-token', $('token').value); start(); };
+start();
+</script>
+</body>
+</html>

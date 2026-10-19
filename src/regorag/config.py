@@ -34,6 +34,9 @@ class Settings:
     monthly_budget_usd: float = 50.0
     full_context_token_limit: int = 150_000
     llm_backend: str = "api"  # "api" or "claude-code"
+    # When set, the import and review pages require this token. Set it before the web
+    # server is reachable by anyone other than reviewers.
+    admin_token: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -56,4 +59,5 @@ class Settings:
             # Without an API key, default to Claude Code so the system works during setup.
             llm_backend=env.get("REGORAG_LLM_BACKEND")
             or ("api" if env.get("ANTHROPIC_API_KEY") else "claude-code"),
+            admin_token=env.get("REGORAG_ADMIN_TOKEN", ""),
         )

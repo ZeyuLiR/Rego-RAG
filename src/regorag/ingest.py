@@ -26,7 +26,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field
 
-from .kb import KnowledgeBase, slugify
+from .kb import KBError, KnowledgeBase, parse_article, slugify
 from .llm import LLM
 from .review import ReviewPolicy, publish
 
@@ -129,8 +129,18 @@ def propose(source_path: Path, kb: KnowledgeBase, collection: str, llm: LLM, mod
             template: str, categories: list[str], inbox_dir: Path,
             today: dt.date | None = None) -> Path:
     """Read, redact and extract one file; write the proposal folder and return it."""
+    folder = propose_text(source_path.name, read_document(source_path), kb, collection, llm, model,
+                          template, categories, inbox_dir, today)
+    shutil.copyfile(source_path, folder / f"original{source_path.suffix.lower()}")
+    return folder
+
+
+def propose_text(source_name: str, raw_text: str, kb: KnowledgeBase, collection: str, llm: LLM,
+                 model: str, template: str, categories: list[str], inbox_dir: Path,
+                 today: dt.date | None = None) -> Path:
+    """Same as `propose`, for text that is already extracted (e.g. a pasted email)."""
     today = today or dt.date.today()
-    text = redact(read_document(source_path))
+    text = redact(raw_text)
     existing = "\n\n".join(a.render_for_model() for a in kb.collection(collection))
     response = llm.parse(
         "extract",
@@ -146,17 +156,26 @@ def propose(source_path: Path, kb: KnowledgeBase, collection: str, llm: LLM, mod
              "cache_control": {"type": "ephemeral"}},
         ],
         messages=[{"role": "user", "content":
-                   f"<source name=\"{source_path.name}\">\n{text}\n</source>"}],
+                   f"<source name=\"{source_name}\">\n{text}\n</source>"}],
     )
     proposal: Proposal = response.parsed_output
-    return write_proposal(proposal, source_path, text, kb, collection, inbox_dir, today)
+    return write_proposal(proposal, Path(source_name), text, kb, collection, inbox_dir, today)
+
+
+def pasted_source_name(text: str, now: dt.datetime | None = None) -> str:
+    """A readable name for pasted text: the email subject if there is one, else a timestamp."""
+    match = re.search(r"(?im)^\s*(?:subject|主题)\s*[:：]\s*(.+)$", text)
+    if match and slugify(match.group(1))[:60].strip("-"):
+        return slugify(match.group(1))[:60].strip("-") + ".txt"
+    now = now or dt.datetime.now()
+    return f"pasted-{now:%Y%m%d-%H%M%S}.txt"
 
 
 def write_proposal(proposal: Proposal, source_path: Path, source_text: str, kb: KnowledgeBase,
                    collection: str, inbox_dir: Path, today: dt.date) -> Path:
     folder = inbox_dir / f"{today.isoformat()}-{slugify(source_path.stem)}"
     n = 2
-    while folder.exists():
+    while folder.exists():  # never overwrite an earlier proposal
         folder = inbox_dir / f"{today.isoformat()}-{slugify(source_path.stem)}-{n}"
         n += 1
     (folder / "drafts").mkdir(parents=True)
@@ -205,17 +224,22 @@ def apply_proposal(folder: Path, kb: KnowledgeBase, kb_dir: Path, policy: Review
     """Copy approved drafts into kb/ and publish them; archive retired articles."""
     data = json.loads((folder / "proposal.json").read_text(encoding="utf-8"))
     collection = data["collection"]
-    written: list[Path] = []
-    for change in data["changes"]:
-        aid = change["article_id"]
-        if only and aid not in only:
-            continue
-        if change["action"] not in {"new", "update", "retire"}:
-            continue
-        existing = kb.get(aid)
+    changes = [c for c in data["changes"]
+               if c["action"] in {"new", "update", "retire"} and (not only or c["article_id"] in only)]
+    # Check everything first so a refusal or a broken draft never leaves a half-applied proposal.
+    for change in changes:
         ok, why = policy.can_approve(reviewer, collection, change["category"])
         if not ok:
             raise PermissionError(why)
+        draft = folder / "drafts" / f"{change['article_id']}.md"
+        if change["action"] != "retire" and draft.is_file():
+            article = parse_article(draft, collection)
+            if article is None or article.id != change["article_id"]:
+                raise KBError(f"{draft.name}: front matter 缺失，或 id 与提案不一致")
+    written: list[Path] = []
+    for change in changes:
+        aid = change["article_id"]
+        existing = kb.get(aid)
         if change["action"] in {"new", "update"}:
             draft = folder / "drafts" / f"{aid}.md"
             if not draft.is_file():
@@ -230,3 +254,48 @@ def apply_proposal(folder: Path, kb: KnowledgeBase, kb_dir: Path, policy: Review
                                      encoding="utf-8")
             written.append(existing.path)
     return written
+
+
+# ---------------------------------------------------------------- the review queue
+
+_FOLDER_NAME = re.compile(r"^[\w.-]+$")
+
+
+def proposal_folder(inbox_dir: Path, name: str) -> Path:
+    """Resolve a proposal folder by name, refusing anything outside inbox/."""
+    folder = inbox_dir / name
+    if not _FOLDER_NAME.match(name) or name.startswith((".", "_")) or not (folder / "proposal.json").is_file():
+        raise FileNotFoundError(f"没有这个待审核提案：{name}")
+    return folder
+
+
+def list_proposals(inbox_dir: Path) -> list[dict]:
+    """Every proposal waiting for review, newest first, with its drafts' current text."""
+    out = []
+    if not inbox_dir.is_dir():
+        return out
+    for folder in sorted(inbox_dir.iterdir(), reverse=True):
+        if folder.name.startswith((".", "_")) or not (folder / "proposal.json").is_file():
+            continue
+        data = json.loads((folder / "proposal.json").read_text(encoding="utf-8"))
+        for change in data["changes"]:
+            draft = folder / "drafts" / f"{change['article_id']}.md"
+            change["draft"] = draft.read_text(encoding="utf-8") if draft.is_file() else None
+        out.append({"name": folder.name, **data})
+    return out
+
+
+def save_draft(folder: Path, article_id: str, content: str) -> None:
+    """Store the reviewer's edit of a draft (front matter included); `apply` uses it."""
+    draft = folder / "drafts" / f"{article_id}.md"
+    if not _FOLDER_NAME.match(article_id) or not draft.is_file():
+        raise FileNotFoundError(f"这个提案里没有草稿：{article_id}")
+    draft.write_text(content.rstrip() + "\n", encoding="utf-8")
+
+
+def close_proposal(folder: Path, inbox_dir: Path, outcome: str) -> Path:
+    """Move a handled proposal to inbox/_applied or inbox/_rejected (kept, not deleted)."""
+    dest = inbox_dir / f"_{outcome}" / folder.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(folder), str(dest))
+    return dest

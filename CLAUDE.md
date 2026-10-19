@@ -46,7 +46,8 @@ owner's go-ahead: they cost money or plan usage. `regorag usage` shows spend so 
 - `src/regorag/usage.py` — usage log, price table, monthly budget
 - `src/regorag/ingest.py` — read/redact/extract → `inbox/` proposal; `apply_proposal`
 - `src/regorag/review.py` — reviewers and `publish`
-- `src/regorag/api.py`, `static/chat.html`, `cli.py` — entry points
+- `src/regorag/api.py`, `static/chat.html`, `static/import.html`, `cli.py` — entry points
+- `src/regorag/importer.py` — background import job queue for the web page
 
 ## Progress
 
@@ -61,13 +62,17 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       `questions` collection (read it with ArtifactData). Rebuild and republish the same file
       whenever kb/ changes.
 - [x] Claude Code backend: the real system runs without an API key (verified end to end)
+- [x] Web import page `/import`: drag multiple files or paste email text → background extraction
+      (one job at a time) → review queue on the same page (edit drafts, approve selected, reject).
+      Approve publishes, reloads the KB and git-commits kb/. `REGORAG_ADMIN_TOKEN` guards it.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`
 - [ ] Owner reviews and publishes the glossary and imported articles
 - [ ] Build the 50-100 question eval set with real clerk questions (gate for phase 2)
 
-Phase 2 (upload and review UI): upload page, proposals as GitHub PRs or a side-by-side review page.
+Phase 2 (upload and review UI): basic version done (`/import`); still to do: forward-to-mailbox
+intake, side-by-side source/diff view.
 Phase 3: feedback buttons, review-date reminders, Teams bot, permissions per role.
 Phase 4 (optional): vector index behind `Retriever`, contradiction scan, MCP server.
 
