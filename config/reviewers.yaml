@@ -1,0 +1,11 @@
+# Who may approve knowledge base changes. Add people here; no code change is needed.
+#   collections: which knowledge bases they may approve ("*" = all)
+#   senior: may approve changes in sensitive_categories below
+reviewers:
+  - name: Zeyu
+    github: ZeyuLiR
+    collections: ["*"]
+    senior: true
+
+# Changes in these categories need a senior reviewer.
+sensitive_categories: [fees, ctp-insurance]

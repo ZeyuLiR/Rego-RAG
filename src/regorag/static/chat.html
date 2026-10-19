@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rego 知识库助手</title>
+<style>
+  :root { --bg:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --me:#eef3ff; --accent:#2f5bd3; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161618; --fg:#f2f2f4; --muted:#9a9aa2; --line:#2c2c30; --me:#1f2a44; --accent:#7ea2ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:16px; display:flex; flex-direction:column; min-height:100vh; }
+  h1 { font-size:18px; margin:4px 0 12px; }
+  #log { flex:1; display:flex; flex-direction:column; gap:12px; }
+  .msg { padding:10px 14px; border:1px solid var(--line); border-radius:10px; white-space:pre-wrap; }
+  .me { background:var(--me); align-self:flex-end; max-width:85%; }
+  .meta { color:var(--muted); font-size:13px; margin-top:6px; white-space:normal; }
+  .warn { color:#b25000; }
+  form { display:flex; gap:8px; position:sticky; bottom:0; background:var(--bg); padding:12px 0; }
+  textarea { flex:1; resize:vertical; min-height:44px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); font:inherit; }
+  button { padding:0 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button:disabled { opacity:.5; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rego 知识库助手</h1>
+  <div id="log"></div>
+  <form id="f">
+    <textarea id="q" placeholder="用中文或英文提问，例如：外州车转入 NSW 需要哪些材料？" required></textarea>
+    <button id="b">提问</button>
+  </form>
+</main>
+<script>
+const log = document.getElementById('log'), q = document.getElementById('q'), b = document.getElementById('b');
+const history = [];
+function add(text, cls) { const d = document.createElement('div'); d.className = 'msg ' + (cls || ''); d.textContent = text; log.appendChild(d); d.scrollIntoView(); return d; }
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const question = q.value.trim(); if (!question) return;
+  add(question, 'me'); q.value = ''; b.disabled = true;
+  const pending = add('正在查找…');
+  try {
+    const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question, history }) });
+    const data = await r.json();
+    if (!r.ok) { pending.textContent = data.detail || '出错了'; pending.classList.add('warn'); return; }
+    pending.textContent = data.answer;
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const srcs = Object.entries(data.sources).map(([id, s]) => s.title + '（' + s.path + '）');
+    meta.textContent = data.covered ? '来源：' + srcs.join('；') : '知识库未覆盖这个问题，已记录待补充。';
+    if (!data.covered) meta.classList.add('warn');
+    pending.appendChild(meta);
+    history.push({ role:'user', content:question }, { role:'assistant', content:data.answer });
+  } catch (err) { pending.textContent = '连接失败：' + err; pending.classList.add('warn'); }
+  finally { b.disabled = false; q.focus(); }
+});
+</script>
+</body>
+</html>

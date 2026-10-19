@@ -1,0 +1,11 @@
+site_name: 公司知识库
+docs_dir: kb
+theme:
+  name: material
+  language: zh
+  features: [navigation.sections, navigation.indexes, search.highlight]
+plugins:
+  - search:
+      lang: [en, zh]
+exclude_docs: |
+  _template.md

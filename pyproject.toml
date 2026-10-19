@@ -1,0 +1,34 @@
+[project]
+name = "regorag"
+version = "0.1.0"
+description = "Knowledge base and Q&A assistant for rego clerks (NSW), with human-reviewed updates"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.15",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "markitdown[pdf,docx,outlook]>=0.1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+site = ["mkdocs-material>=9.5"]
+
+[project.scripts]
+regorag = "regorag.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.package-data]
+regorag = ["static/*.html"]

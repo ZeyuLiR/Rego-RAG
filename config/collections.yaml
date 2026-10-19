@@ -1,0 +1,12 @@
+# One entry per knowledge base. Add a collection here and create kb/<name>/ to start a new one.
+collections:
+  rego:
+    title: Rego 知识库
+    description: NSW vehicle registration procedures for rego clerks
+    categories: [registration, transfer, plates, fees, ctp-insurance, inspections, exceptions, faq, glossary]
+    template: kb/rego/_template.md
+  sales:
+    title: Sales 知识库
+    description: Reserved for the future sales knowledge base
+    categories: [products, pricing, process, faq, glossary]
+    template: kb/rego/_template.md
