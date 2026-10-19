@@ -12,6 +12,7 @@
   main { max-width:760px; margin:0 auto; padding:16px; display:flex; flex-direction:column; min-height:100vh; }
   header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:4px 0 12px; }
   h1 { font-size:18px; margin:0; }
+  .nav { color:var(--accent); font-size:13px; margin-right:auto; text-decoration:none; }
   header label { color:var(--muted); font-size:13px; display:flex; align-items:center; gap:6px; }
   select { padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font:inherit; font-size:13px; }
   .tag { display:inline-block; font-size:12px; color:var(--accent); border:1px solid var(--line); border-radius:6px; padding:0 6px; margin-bottom:6px; }
@@ -30,6 +31,7 @@
 <main>
   <header>
     <h1>Rego 知识库助手</h1>
+    <a href="/import" class="nav">导入与审核</a>
     <label>检索方式
       <select id="mode">
         <option value="">默认</option>

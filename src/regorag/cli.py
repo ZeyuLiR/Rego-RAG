@@ -157,10 +157,27 @@ def cmd_test_page(args, settings: Settings) -> int:
     return 0
 
 
-def cmd_serve(args, settings: Settings) -> int:
-    import uvicorn
+def _free_port(host: str, start: int) -> int:
+    import socket
 
-    uvicorn.run("regorag.api:app", host=args.host, port=args.port)
+    for port in range(start, start + 20):
+        with socket.socket() as s:
+            if s.connect_ex((host, port)) != 0:
+                return port
+    return start
+
+
+def cmd_serve(args, settings: Settings) -> int:
+    import threading
+    import uvicorn
+    import webbrowser
+
+    port = _free_port(args.host, args.port)
+    url = f"http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{port}"
+    print(f"知识库已启动：问答 {url}  ·  导入与审核 {url}/import")
+    if args.open:
+        threading.Timer(1.5, webbrowser.open, [url]).start()
+    uvicorn.run("regorag.api:app", host=args.host, port=port, log_level="warning")
     return 0
 
 
@@ -223,7 +240,8 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("serve", help="启动网页聊天和 API")
     s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--port", type=int, default=8000, help="被占用时自动换下一个")
+    s.add_argument("--open", action="store_true", help="启动后打开浏览器")
     s.set_defaults(fn=cmd_serve)
 
     args = p.parse_args(argv)
