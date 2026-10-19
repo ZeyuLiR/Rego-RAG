@@ -26,7 +26,7 @@ rego clerk 用中文或英文提问，助手只根据**审核过的知识库**�
 - Windows：`start-windows.bat`
 
 第一次会自动准备环境、安装组件并创建 `.env`（几分钟）；以后双击几秒就打开浏览器，并自动拉取最新版本。
-详细步骤见使用教程。
+详细步骤见[使用教程](https://claude.ai/code/artifact/e4d2d04d-58c0-4d4d-a187-412feef23395)。
 
 ## 手动安装（开发用）
 

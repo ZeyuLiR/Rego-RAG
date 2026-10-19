@@ -73,6 +73,10 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
 - [x] Web import page `/import`: drag multiple files or paste email text → background extraction
       (one job at a time) → review queue on the same page (edit drafts, approve selected, reject).
       Approve publishes, reloads the KB and git-commits kb/. `REGORAG_ADMIN_TOKEN` guards it.
+- [x] One-step start: double-click `start-mac.command` / `start-windows.bat` (→ `start.py`: venv,
+      install incl. `[vector]`, `.env`, `git pull --ff-only`, `serve --open` on a free port).
+      Chinese tutorial: https://claude.ai/code/artifact/e4d2d04d-58c0-4d4d-a187-412feef23395
+      (keep it in step with start-up or UI changes). The owner wants usage and startup as simple as possible.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`
