@@ -33,6 +33,7 @@ class Settings:
     qa_effort: str = "medium"
     monthly_budget_usd: float = 50.0
     full_context_token_limit: int = 150_000
+    llm_backend: str = "api"  # "api" or "claude-code"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -52,4 +53,7 @@ class Settings:
             full_context_token_limit=int(
                 env.get("REGORAG_FULL_CONTEXT_TOKEN_LIMIT", cls.full_context_token_limit)
             ),
+            # Without an API key, default to Claude Code so the system works during setup.
+            llm_backend=env.get("REGORAG_LLM_BACKEND")
+            or ("api" if env.get("ANTHROPIC_API_KEY") else "claude-code"),
         )

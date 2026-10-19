@@ -35,6 +35,7 @@ class UsageRecord:
     cache_write_tokens: int
     cache_read_tokens: int
     cost_usd: float
+    backend: str = "api"  # "claude-code" calls run on the Claude plan; cost is the list-price equivalent
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int,
@@ -52,7 +53,7 @@ class UsageLog:
         self.path = path
         self.monthly_budget_usd = monthly_budget_usd
 
-    def record(self, purpose: str, model: str, usage) -> UsageRecord:
+    def record(self, purpose: str, model: str, usage, backend: str = "api") -> UsageRecord:
         """`usage` is the `response.usage` object from the Anthropic SDK."""
         rec = UsageRecord(
             ts=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
@@ -63,6 +64,7 @@ class UsageLog:
             cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
             cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
             cost_usd=0.0,
+            backend=backend,
         )
         rec.cost_usd = estimate_cost(rec.model, rec.input_tokens, rec.output_tokens,
                                      rec.cache_write_tokens, rec.cache_read_tokens)
@@ -80,10 +82,13 @@ class UsageLog:
                 out.append(UsageRecord(**json.loads(line)))
         return out
 
-    def month_total(self, month: str | None = None) -> float:
-        """Total estimated spend for a month, 'YYYY-MM' (default: current UTC month)."""
+    def month_total(self, month: str | None = None, backend: str = "api") -> float:
+        """Estimated spend for a month, 'YYYY-MM' (default: current UTC month), for one backend.
+
+        The budget only counts API calls: Claude Code calls are covered by the Claude plan."""
         month = month or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m")
-        return round(sum(r.cost_usd for r in self.records() if r.ts.startswith(month)), 4)
+        return round(sum(r.cost_usd for r in self.records()
+                         if r.ts.startswith(month) and r.backend == backend), 4)
 
     def check_budget(self) -> None:
         if self.monthly_budget_usd > 0 and self.month_total() >= self.monthly_budget_usd:
@@ -105,11 +110,13 @@ class UsageLog:
             agg["input_tokens"] += r.input_tokens
             agg["output_tokens"] += r.output_tokens
             agg["cache_read_tokens"] += r.cache_read_tokens
-        total = round(sum(r.cost_usd for r in rows), 4)
+        total = self.month_total(month)
         return {
             "month": month,
             "calls": len(rows),
             "cost_usd": total,
+            "claude_code_calls": sum(1 for r in rows if r.backend == "claude-code"),
+            "claude_code_list_price_usd": self.month_total(month, "claude-code"),
             "budget_usd": self.monthly_budget_usd,
             "budget_used_pct": round(100 * total / self.monthly_budget_usd, 1)
             if self.monthly_budget_usd > 0 else None,

@@ -28,7 +28,7 @@ def build_app(settings: Settings | None = None, client=None) -> App:
     settings = settings or Settings.from_env()
     kb = load_kb(settings.kb_dir)
     usage = UsageLog(settings.usage_log, settings.monthly_budget_usd)
-    llm = LLM(usage, client=client)
+    llm = LLM(usage, client=client, backend=settings.llm_backend)
     qa = QAService(kb=kb, llm=llm, model=settings.qa_model, effort=settings.qa_effort,
                    full_context_token_limit=settings.full_context_token_limit,
                    gaps_log=settings.usage_log.parent / "gaps.jsonl")

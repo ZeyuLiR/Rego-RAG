@@ -14,6 +14,9 @@ Key decisions (confirmed by the owner, 2026-10-19):
   and a human approves them (`regorag apply`).
 - Source material is mostly English; clerks ask in Chinese. Keep articles in English; answers
   are in the question's language with English official terms kept.
+- Until an API key is set up, the system calls Claude through the Claude Code CLI
+  (`REGORAG_LLM_BACKEND=claude-code`, `src/regorag/claude_code.py`) on the owner's Claude plan.
+  Same code path otherwise. Switch to `api` before clerks use it.
 - Cloud Claude API is allowed. Personal data is regex-redacted before sending (`ingest.redact`).
 - One reviewer today (Zeyu); more later via `config/reviewers.yaml` only.
 - Clerks use Teams and Outlook: a Teams bot is phase 3; import accepts `.eml`/`.msg`.
@@ -30,8 +33,8 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/regorag serve        # web chat on :8000
 ```
 
-Never run commands that call the real API (`ask`, `import`, `serve` + a question) without the
-owner's go-ahead: they cost money. `regorag usage` shows spend so far.
+Never run commands that call the real model (`ask`, `import`, `serve` + a question) without the
+owner's go-ahead: they cost money or plan usage. `regorag usage` shows spend so far.
 
 ## Code map
 
@@ -39,6 +42,7 @@ owner's go-ahead: they cost money. `regorag usage` shows spend so far.
 - `src/regorag/retrieval.py` — `FullContextRetriever`, `BM25Retriever`, `build_retriever`
 - `src/regorag/qa.py` — prompts and `QAService.ask`
 - `src/regorag/llm.py` — the only place that calls Claude (budget check, `fallbacks="default"`, usage log)
+- `src/regorag/claude_code.py` — `claude -p` client with the SDK's `beta.messages.create/parse` shape
 - `src/regorag/usage.py` — usage log, price table, monthly budget
 - `src/regorag/ingest.py` — read/redact/extract → `inbox/` proposal; `apply_proposal`
 - `src/regorag/review.py` — reviewers and `publish`
@@ -56,8 +60,10 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       viewer's claude.ai account and stores each question/answer/verdict in the artifact's
       `questions` collection (read it with ArtifactData). Rebuild and republish the same file
       whenever kb/ changes.
-- [ ] Owner sends the existing ~10-20 documents; Claude drafts articles into inbox/ (test mode)
-- [ ] Later: owner adds `.env` with an API key
+- [x] Claude Code backend: the real system runs without an API key (verified end to end)
+- [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
+      ~10-20 documents (or sends them to Claude to run the same pipeline)
+- [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`
 - [ ] Owner reviews and publishes the glossary and imported articles
 - [ ] Build the 50-100 question eval set with real clerk questions (gate for phase 2)
 

@@ -22,9 +22,19 @@ rego clerk 用中文或英文提问，助手只根据**审核过的知识库**�
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env   # 填入 ANTHROPIC_API_KEY，按需调整模型和月度预算
-pytest                 # 不调用 API，不花钱
+cp .env.example .env
+pytest                 # 不调用模型，不花钱
 ```
+
+## 两种调用 Claude 的方式（`.env` 里的 `REGORAG_LLM_BACKEND`）
+
+| 方式 | 需要什么 | 费用 | 适合 |
+| --- | --- | --- | --- |
+| `claude-code`（现在用这个）| 本机安装并登录 Claude Code（`npm install -g @anthropic-ai/claude-code`，然后运行一次 `claude` 登录）| 算在你的 Claude 套餐用量里，不另外付费 | 搭建期、你自己测试 |
+| `api` | `ANTHROPIC_API_KEY` | 按 token 计费，受月度预算限制 | clerk 正式使用 |
+
+两种方式走的是同一套代码：同样的知识库、提示词、检索、引用、审核流程，只是最后调用 Claude 的那一步不同。
+切换只改 `.env` 这一行，其他什么都不用动。
 
 人读网站（可选）：`pip install -e ".[site]" && mkdocs serve`。
 
@@ -58,6 +68,6 @@ src/regorag/                               代码
 
 ## 用量与费用
 
-每次 API 调用都记入 `data/usage.jsonl`（估算费用）。`REGORAG_MONTHLY_BUDGET_USD` 设定月度上限，
+每次调用（两种方式都算）都记入 `data/usage.jsonl`（估算费用）。`REGORAG_MONTHLY_BUDGET_USD` 设定月度上限，
 达到后问答接口返回 429，不会继续花钱。默认模型是 `claude-opus-5-5`，如果想降低费用，
 可以在 `.env` 里把 `REGORAG_QA_MODEL` 改为 `claude-sonnet-5-5`。
