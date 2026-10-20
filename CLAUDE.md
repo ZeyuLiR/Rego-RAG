@@ -53,6 +53,7 @@ owner's go-ahead: they cost money or plan usage. `regorag usage` shows spend so 
 - `src/regorag/review.py` — reviewers and `publish`
 - `src/regorag/api.py`, `static/chat.html`, `static/import.html`, `cli.py` — entry points
 - `src/regorag/importer.py` — background import job queue for the web page
+- `src/regorag/chats.py` — server-side chat history (`data/chats.db`)
 
 ## Progress
 
@@ -91,8 +92,9 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       shows download buttons, `/files/<collection>/<name>` serves only files of live articles.
       Answers also list the attachments of every cited article. The review card has per-article
       checkboxes for which uploaded files to attach (`ApplyRequest.attachments`).
-- [x] Chat page: left sidebar with conversation history (browser localStorage, per machine);
-      Enter sends. Server-side history per clerk needs logins (phase 3 permissions).
+- [x] Chat page: left sidebar with conversation history, stored on the server in
+      `data/chats.db` (SQLite, `chats.py`) under the name the clerk types (no logins yet, so
+      separated but not protected). Older browser-only history migrates on first use. Enter sends.
 - [x] start.py update falls back to `git pull --rebase --autostash` because approvals commit kb/
       locally, and prints the current version so the owner can tell whether an update landed.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing

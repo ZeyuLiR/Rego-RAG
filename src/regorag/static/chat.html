@@ -22,7 +22,11 @@
   .chat button.open { flex:1; min-width:0; text-align:left; background:none; color:var(--fg); padding:8px 8px; border:0; font:inherit; font-size:14px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .chat button.del { background:none; border:0; color:var(--muted); cursor:pointer; padding:4px 8px; font-size:16px; visibility:hidden; }
   .chat:hover button.del, .chat.on button.del { visibility:visible; }
-  .side-foot { color:var(--muted); font-size:12px; padding:10px 14px; border-top:1px solid var(--line); }
+  .side-foot { color:var(--muted); font-size:12px; padding:10px 14px; border-top:1px solid var(--line); display:grid; gap:6px; }
+  .who-row { display:flex; gap:6px; }
+  .who-row input { flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font:inherit; font-size:14px; }
+  .who-row button, .link { background:none; border:1px solid var(--line); border-radius:8px; color:var(--accent); font:inherit; font-size:13px; padding:4px 10px; cursor:pointer; }
+  .link { border:0; padding:0 4px; }
   main { flex:1; min-width:0; display:flex; flex-direction:column; min-height:100vh; }
   .inner { width:100%; max-width:780px; margin:0 auto; padding:0 16px; display:flex; flex-direction:column; flex:1; }
   header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 0 12px; }
@@ -59,7 +63,10 @@
     <div class="side-head"><button class="new" id="new" type="button">＋ 新对话</button></div>
     <div class="side-label">历史对话</div>
     <div id="chats"></div>
-    <div class="side-foot">历史只保存在这台电脑的浏览器里</div>
+    <div class="side-foot" id="who">
+      <label for="user">你的名字（历史对话按名字保存，换电脑也能看到）</label>
+      <div class="who-row"><input id="user" type="text" maxlength="60" placeholder="例如 Amy"><button id="userGo" type="button">确定</button></div>
+    </div>
   </aside>
   <div class="shade" id="shade"></div>
   <main>
@@ -93,11 +100,67 @@ const log = $('log'), q = $('q'), b = $('b'), modeSel = $('mode');
 const MODES = { full:'全文', bm25:'关键词', vector:'向量', hybrid:'混合' };
 const KEY = 'rego-chats';
 
-// ------------------------------------------------------------ storage (this browser only)
-function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(chats.slice(0, 200))); } catch (e) {} }
-let chats = load();
+// ------------------------------------------------------------ storage (on the server, by name)
+const store = { get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+                del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+let user = store.get('rego-user');
+let chats = [];      // summaries: {id, title, updated}
 let current = null;  // the open conversation, or null for a new one not yet asked
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || ('出错了（' + r.status + '）'));
+  return body;
+}
+const qs = () => '?user=' + encodeURIComponent(user);
+async function refreshList() {
+  if (!user) { chats = []; renderList(); return; }
+  try { chats = (await api('/api/chats' + qs())).chats; } catch (e) { chats = []; }
+  renderList();
+}
+async function saveCurrent() {
+  if (!user || !current) return;
+  try {
+    await api('/api/chats/' + encodeURIComponent(current.id), { method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user, title: current.title, turns: current.turns }) });
+  } catch (e) {}
+}
+async function migrateLocal() {
+  // Conversations saved in this browser by the earlier version move to the server once.
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+  for (const c of local) {
+    try { await api('/api/chats/' + encodeURIComponent(c.id), { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user, title: c.title, turns: c.turns }) }); } catch (e) { return; }
+  }
+  store.del(KEY);
+}
+function renderWho() {
+  const box = $('who'); box.replaceChildren();
+  if (user) {
+    const line = document.createElement('div');
+    line.append('当前：' + user + ' ');
+    const change = document.createElement('button'); change.className = 'link'; change.type = 'button'; change.textContent = '更换';
+    change.onclick = () => { user = ''; store.del('rego-user'); current = null; renderWho(); refreshList(); renderLog(); };
+    line.append(change);
+    box.append(line, document.createTextNode('历史对话保存在知识库服务器上，换电脑也能看到。'));
+    return;
+  }
+  const label = document.createElement('label'); label.htmlFor = 'user';
+  label.textContent = '你的名字（历史对话按名字保存，换电脑也能看到）';
+  const row = document.createElement('div'); row.className = 'who-row';
+  const input = document.createElement('input'); input.id = 'user'; input.maxLength = 60; input.placeholder = '例如 Amy';
+  const go = document.createElement('button'); go.type = 'button'; go.textContent = '确定';
+  const set = async () => {
+    const v = input.value.trim(); if (!v) { input.focus(); return; }
+    user = v; store.set('rego-user', v); renderWho(); await migrateLocal(); await refreshList();
+  };
+  go.onclick = set; input.onkeydown = (e) => { if (e.key === 'Enter') set(); };
+  row.append(input, go); box.append(label, row);
+}
 
 try { modeSel.value = localStorage.getItem('regorag-mode') || ''; } catch (e) {}
 modeSel.addEventListener('change', () => { try { localStorage.setItem('regorag-mode', modeSel.value); } catch (e) {} });
@@ -112,15 +175,19 @@ function renderList() {
     open.onclick = () => { openChat(c.id); $('app').classList.remove('side-open'); };
     const del = document.createElement('button'); del.className = 'del'; del.type = 'button';
     del.textContent = '×'; del.title = '删除这段对话';
-    del.onclick = () => {
-      chats = chats.filter(x => x.id !== c.id); save();
+    del.onclick = async () => {
+      try { await api('/api/chats/' + encodeURIComponent(c.id) + qs(), { method:'DELETE' }); } catch (e) { return; }
+      chats = chats.filter(x => x.id !== c.id);
       if (current && current.id === c.id) newChat(); else renderList();
     };
     row.append(open, del); box.appendChild(row);
   }
 }
 function newChat() { current = null; renderLog(); renderList(); q.focus(); }
-function openChat(id) { current = chats.find(c => c.id === id) || null; renderLog(); renderList(); }
+async function openChat(id) {
+  try { current = await api('/api/chats/' + encodeURIComponent(id) + qs()); } catch (e) { current = null; }
+  renderLog(); renderList();
+}
 $('new').onclick = () => { newChat(); $('app').classList.remove('side-open'); };
 $('menu').onclick = () => $('app').classList.add('side-open');
 $('shade').onclick = () => $('app').classList.remove('side-open');
@@ -193,6 +260,12 @@ async function ask(question, retrieval, tag, prior) {
 $('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   const question = q.value.trim(); if (!question) return;
+  if (!user) {
+    $('app').classList.add('side-open');
+    const input = $('user'); if (input) input.focus();
+    add('请先在左下角填写你的名字，历史对话会按名字保存。', 'warn');
+    return;
+  }
   if (!current) {
     current = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
                 title: question.slice(0, 40), turns: [] };
@@ -209,15 +282,16 @@ $('f').addEventListener('submit', async (e) => {
       current.turns.push(await ask(question, modeSel.value, null, prior));
     }
   } finally {
-    current.updated = Date.now();
-    chats = [current, ...chats.filter(c => c.id !== current.id)];
-    save(); renderList(); b.disabled = false; q.focus();
+    chats = [{ id: current.id, title: current.title }, ...chats.filter(c => c.id !== current.id)];
+    renderList(); b.disabled = false; q.focus();
+    await saveCurrent();
   }
 });
 q.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('f').requestSubmit(); }
 });
 
-renderList(); renderLog();
+renderWho(); renderLog();
+(async () => { if (user) await migrateLocal(); await refreshList(); })();
 </script>
 </body>

@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from .app import build_app
+from .chats import ChatStore
 from .importer import ALLOWED_SUFFIXES, MAX_FILE_BYTES, ImportQueue
 from .ingest import (Source, apply_proposal, close_proposal, list_proposals, pasted_source_name,
                      propose_batch, proposal_folder, read_sources, save_draft,
@@ -36,6 +37,12 @@ class AskRequest(BaseModel):
     collection: str = "rego"
     history: list[dict] = []
     retrieval: str | None = None  # override the default mode for this question
+
+
+class ChatRequest(BaseModel):
+    user: str
+    title: str
+    turns: list[dict]
 
 
 class ApplyRequest(BaseModel):
@@ -138,6 +145,42 @@ def create_app(regorag_app=None) -> FastAPI:
                 files[name] = {"title": att.label, "url": f"/files/{req.collection}/{name}"}
         return {"answer": ans.text, "sources": links, "files": files, "covered": ans.covered,
                 "mode": ans.mode, "search_query": ans.search_query, "cost_usd": ans.cost_usd}
+
+    # ------------------------------------------------------------ chat history
+
+    chat_state: dict = {}
+
+    def chats() -> ChatStore:
+        if "store" not in chat_state:
+            chat_state["store"] = ChatStore(get().settings.usage_log.parent / "chats.db")
+        return chat_state["store"]
+
+    def clean(user: str, chat_id: str = "x") -> str:
+        user = user.strip()
+        if not user or len(user) > 60 or not chat_id or len(chat_id) > 64:
+            raise HTTPException(400, "请先在左下角填写名字。")
+        return user
+
+    @api.get("/api/chats")
+    def list_chats(user: str) -> dict:
+        return {"chats": chats().list(clean(user))}
+
+    @api.get("/api/chats/{chat_id}")
+    def get_chat(chat_id: str, user: str) -> dict:
+        chat = chats().get(clean(user, chat_id), chat_id)
+        if chat is None:
+            raise HTTPException(404, "没有这段对话")
+        return chat
+
+    @api.put("/api/chats/{chat_id}")
+    def save_chat(chat_id: str, req: ChatRequest) -> dict:
+        chats().save(clean(req.user, chat_id), chat_id, req.title[:80], req.turns)
+        return {"ok": True}
+
+    @api.delete("/api/chats/{chat_id}")
+    def delete_chat(chat_id: str, user: str) -> dict:
+        chats().delete(clean(user, chat_id), chat_id)
+        return {"ok": True}
 
     @api.get("/files/{collection}/{name}")
     def attachment(collection: str, name: str) -> FileResponse:
