@@ -90,3 +90,32 @@ def test_backend_defaults_from_api_key(monkeypatch):
     assert Settings.from_env().llm_backend == "claude-code"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     assert Settings.from_env().llm_backend == "api"
+
+
+def _npm_shim(tmp_path, *files):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("@echo off\n")
+    shim.chmod(0o755)
+    pkg = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code"
+    for f in files:
+        (pkg / f).parent.mkdir(parents=True, exist_ok=True)
+        (pkg / f).write_text("")
+    return ClaudeCodeClient(executable=str(shim)), pkg
+
+
+def test_windows_npm_shim_runs_the_real_program(tmp_path, monkeypatch):
+    # npm on Windows puts claude.cmd on PATH; starting it directly fails with WinError 2.
+    client, pkg = _npm_shim(tmp_path, "bin/claude.exe")
+    assert client.command() == [str(pkg / "bin" / "claude.exe")]
+
+    client, pkg = _npm_shim(tmp_path / "old", "cli.js")
+    monkeypatch.setattr("regorag.claude_code.shutil.which",
+                        lambda name: "/usr/bin/node" if name == "node" else str(tmp_path / "old" / "claude.cmd"))
+    assert client.command() == ["/usr/bin/node", str(pkg / "cli.js")]
+
+
+def test_unusable_shim_gives_clear_error(tmp_path):
+    client, _ = _npm_shim(tmp_path)
+    with pytest.raises(ClaudeCodeError, match="install.ps1"):
+        client.command()

@@ -48,6 +48,28 @@ class ClaudeCodeClient:
     def available(self) -> bool:
         return shutil.which(self.executable) is not None
 
+    def command(self) -> list[str]:
+        """The program to start. On Windows an npm install puts a `claude.cmd` shim on PATH,
+        which CreateProcess cannot start and cmd.exe would mangle our arguments through, so
+        run the program the shim points at instead."""
+        exe = shutil.which(self.executable)
+        if exe is None:
+            raise ClaudeCodeError(
+                "找不到 Claude Code（claude 命令）。请先安装并登录 Claude Code，"
+                "或在 .env 里设置 REGORAG_LLM_BACKEND=api 并填写 ANTHROPIC_API_KEY。")
+        if not exe.lower().endswith((".cmd", ".bat")):
+            return [exe]
+        pkg = Path(exe).parent / "node_modules" / "@anthropic-ai" / "claude-code"
+        for native in (pkg / "bin" / "claude.exe", pkg / "bin" / "claude"):
+            if native.is_file():
+                return [str(native)]
+        node = shutil.which("node")
+        if (pkg / "cli.js").is_file() and node:
+            return [node, str(pkg / "cli.js")]
+        raise ClaudeCodeError(
+            f"找到的 Claude Code 是 {exe}，无法直接调用。请在 PowerShell 运行 "
+            "irm https://claude.ai/install.ps1 | iex 用官方方式安装后再试。")
+
     def create(self, *, model, system=None, messages, output_config=None, **_ignored):
         data = self._run(model, _system_text(system), _prompt(messages),
                          (output_config or {}).get("effort"))
@@ -66,14 +88,11 @@ class ClaudeCodeClient:
 
     def _run(self, model: str, system: str, prompt: str, effort: str | None,
              schema: dict | None = None) -> dict:
-        if not self.available():
-            raise ClaudeCodeError(
-                "找不到 Claude Code（claude 命令）。请先安装并登录 Claude Code，"
-                "或在 .env 里设置 REGORAG_LLM_BACKEND=api 并填写 ANTHROPIC_API_KEY。")
+        program = self.command()
         with tempfile.TemporaryDirectory(prefix="regorag-cc-") as tmp:
             system_file = Path(tmp) / "system.txt"
             system_file.write_text(system, encoding="utf-8")  # too long for argv once the KB grows
-            cmd = [self.executable, "-p", "--output-format", "json", "--model", model,
+            cmd = [*program, "-p", "--output-format", "json", "--model", model,
                    "--system-prompt-file", str(system_file), "--tools", "",
                    "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence"]
             if effort:
@@ -81,10 +100,14 @@ class ClaudeCodeClient:
             if schema:
                 cmd += ["--json-schema", json.dumps(schema)]
             try:
+                # Claude Code speaks UTF-8; Windows would otherwise decode with the local code page.
                 proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
-                                      cwd=tmp, timeout=self.timeout_s)
+                                      encoding="utf-8", errors="replace", cwd=tmp,
+                                      timeout=self.timeout_s)
             except subprocess.TimeoutExpired as exc:
                 raise ClaudeCodeError(f"Claude Code 超过 {self.timeout_s} 秒没有回应") from exc
+            except OSError as exc:
+                raise ClaudeCodeError(f"无法启动 Claude Code（{program[0]}）：{exc}") from exc
         try:
             data = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:

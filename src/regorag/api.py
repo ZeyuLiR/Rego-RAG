@@ -53,7 +53,8 @@ def _page(name: str) -> str:
 def _git_commit(root: Path, message: str) -> str | None:
     """Commit kb/ changes so Git history records who approved what. Returns the short hash."""
     def git(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
 
     if git("rev-parse", "--is-inside-work-tree").returncode != 0:
         return None
