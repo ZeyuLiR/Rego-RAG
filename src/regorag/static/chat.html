@@ -71,7 +71,8 @@ async function ask(question, retrieval, showTag) {
     if (!r.ok) { box.appendChild(document.createTextNode(data.detail || '出错了')); box.classList.add('warn'); return null; }
     const files = data.files || {};
     box.appendChild(document.createTextNode(data.answer.replace(/\[\[file:([^\]\s]+)\]\]/g,
-      (m, name) => files[name] ? '「' + files[name].title + '」' : '')));
+      (m, name) => files[name] ? '「' + files[name].title + '」' : '')
+      .replace(/\s?\[\[[^\]]+\]\]/g, '')));  // citation markers; the sources are listed below
     if (Object.keys(files).length) {
       const row = document.createElement('div'); row.className = 'files';
       for (const f of Object.values(files)) {
