@@ -21,7 +21,8 @@ from pydantic import BaseModel
 from .app import build_app
 from .importer import ALLOWED_SUFFIXES, MAX_FILE_BYTES, ImportQueue
 from .ingest import (Source, apply_proposal, close_proposal, list_proposals, pasted_source_name,
-                     propose_batch, proposal_folder, read_sources, save_draft)
+                     propose_batch, proposal_folder, read_sources, save_draft,
+                     set_draft_attachments)
 from .kb import KBError, load_kb
 from .llm import RefusedError
 from .qa import Turn
@@ -40,6 +41,8 @@ class AskRequest(BaseModel):
 class ApplyRequest(BaseModel):
     reviewer: str
     only: list[str] | None = None
+    # article id -> uploaded file names to store with it (the reviewer's ticks on the page)
+    attachments: dict[str, list[str]] | None = None
 
 
 class DraftRequest(BaseModel):
@@ -122,8 +125,14 @@ def create_app(regorag_app=None) -> FastAPI:
             if art:
                 links[src] = {"title": art.meta.title,
                               "path": str(art.path.relative_to(a.settings.kb_dir))}
+        # Files the answer offers, then the attachments of the articles it cites, so a
+        # template is at hand whenever its article is used.
+        names = list(ans.files)
+        for src in ans.sources:
+            art = a.kb.get(src.split("#")[0])
+            names += [f.file for f in art.meta.attachments] if art else []
         files = {}
-        for name in ans.files:
+        for name in dict.fromkeys(names):
             att = a.kb.attachment(req.collection, name)
             if att:
                 files[name] = {"title": att.label, "url": f"/files/{req.collection}/{name}"}
@@ -234,6 +243,11 @@ def create_app(regorag_app=None) -> FastAPI:
     def apply(name: str, req: ApplyRequest) -> dict:
         a = get()
         folder = folder_or_404(name)
+        try:
+            for article_id, originals in (req.attachments or {}).items():
+                set_draft_attachments(folder, article_id, originals)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
         try:
             written = apply_proposal(folder, a.kb, a.settings.kb_dir, a.policy, req.reviewer, req.only)
             reload_kb()

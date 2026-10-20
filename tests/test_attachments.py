@@ -67,3 +67,30 @@ def test_attachment_name_cannot_leave_files_dir(workspace):
         "reg-x", "X", attachments="[{file: ../../secret.txt}]"), encoding="utf-8")
     with pytest.raises(KBError, match="plain file name"):
         load_kb(workspace.kb_dir)
+
+
+def test_reviewer_ticks_attachment_and_cited_article_offers_it(workspace):
+    # The model did not mark the template; the reviewer ticks it on the page.
+    proposal = BatchProposal(topics=[Topic(title_zh="注销", source_summary_zh="de-rego", changes=[ProposedChange(
+        action="new", article_id="reg-deregistration", title="De-registration", category="registration",
+        summary_zh="新文章", evidence=["x"], article_markdown="## Steps\n\n1. Send the letter.")])])
+    # The answer cites the article but does not write a [[file:]] marker.
+    fake = FakeClient(parsed=proposal, replies=["寄信给客户。\nSOURCES: reg-deregistration"])
+    api = create_app(build_app(workspace, client=fake))
+    http = TestClient(api)
+    http.post("/api/import", data={"collection": "rego"},
+              files=[("files", ("process.txt", b"De-rego steps", "text/plain")),
+                     ("files", ("Letter Template.docx", TEMPLATE, "application/octet-stream"))])
+    api.state.import_queue.wait()
+    (p,) = http.get("/api/proposals").json()["proposals"]
+    assert p["originals"] == ["Letter Template.docx", "process.txt"]
+    assert p["changes"][0]["attached"] == []
+
+    r = http.post(f"/api/proposals/{p['name']}/apply", json={
+        "reviewer": "Zeyu", "attachments": {"reg-deregistration": ["Letter Template.docx"]}})
+    assert r.status_code == 200, r.text
+    assert (workspace.kb_dir / "rego" / "files" / "letter-template.docx").read_bytes() == TEMPLATE
+
+    body = http.post("/api/ask", json={"question": "注销怎么做"}).json()
+    assert body["files"] == {"letter-template.docx": {
+        "title": "Letter Template", "url": "/files/rego/letter-template.docx"}}

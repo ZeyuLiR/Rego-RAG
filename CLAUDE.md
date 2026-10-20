@@ -89,6 +89,12 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       `attachments` front matter. Extraction proposes `attach_files` (never filled-in examples);
       apply copies them from the proposal's `originals/`. Answers offer `[[file:name]]`, the chat
       shows download buttons, `/files/<collection>/<name>` serves only files of live articles.
+      Answers also list the attachments of every cited article. The review card has per-article
+      checkboxes for which uploaded files to attach (`ApplyRequest.attachments`).
+- [x] Chat page: left sidebar with conversation history (browser localStorage, per machine);
+      Enter sends. Server-side history per clerk needs logins (phase 3 permissions).
+- [x] start.py update falls back to `git pull --rebase --autostash` because approvals commit kb/
+      locally, and prints the current version so the owner can tell whether an update landed.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`

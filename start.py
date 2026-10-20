@@ -31,13 +31,25 @@ def update() -> None:
     """Fetch the latest version when this folder is a git checkout. Never blocks startup."""
     if not (ROOT / ".git").exists() or not shutil.which("git"):
         return
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=60)
+
     try:
-        r = subprocess.run(["git", "-C", str(ROOT), "pull", "--ff-only", "-q"],
-                           capture_output=True, text=True, timeout=30)
+        if git("pull", "--ff-only", "-q").returncode != 0:
+            # Approving proposals commits kb/ locally, so a plain fast-forward is often not
+            # possible: replay those local commits on top of the new version instead.
+            if git("pull", "--rebase", "--autostash", "-q").returncode != 0:
+                git("rebase", "--abort")
+                say("没能自动更新到最新版本（网络问题或改动冲突），继续用当前版本启动。")
     except subprocess.TimeoutExpired:
-        return
-    if r.returncode != 0:
-        say("没能自动更新到最新版本（网络或本地有改动），继续用当前版本启动。")
+        say("更新超时，继续用当前版本启动。")
+    try:
+        version = git("log", "-1", "--format=%cd %h", "--date=format:%Y-%m-%d %H:%M").stdout.strip()
+        if version:
+            say(f"当前版本：{version}")
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def install() -> None:

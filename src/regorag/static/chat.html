@@ -5,107 +5,219 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rego 知识库助手</title>
 <style>
-  :root { --bg:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --me:#eef3ff; --accent:#2f5bd3; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#161618; --fg:#f2f2f4; --muted:#9a9aa2; --line:#2c2c30; --me:#1f2a44; --accent:#7ea2ff; } }
+  /* Layout: conversation list on the left (an overlay on phones), the open conversation on the right. */
+  :root { --bg:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --me:#eef3ff; --side:#f6f6f8; --hover:#ececf0; --accent:#2f5bd3; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161618; --fg:#f2f2f4; --muted:#9a9aa2; --line:#2c2c30; --me:#1f2a44; --side:#1d1d20; --hover:#2a2a2f; --accent:#7ea2ff; } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  main { max-width:760px; margin:0 auto; padding:16px; display:flex; flex-direction:column; min-height:100vh; }
-  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:4px 0 12px; }
+  .app { display:flex; min-height:100vh; }
+  aside { width:260px; flex:none; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; height:100vh; position:sticky; top:0; }
+  .side-head { padding:14px 12px 8px; display:flex; gap:8px; }
+  .new { flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); font:inherit; cursor:pointer; text-align:left; }
+  .new:hover { background:var(--hover); }
+  .side-label { color:var(--muted); font-size:12px; padding:8px 14px 4px; }
+  #chats { overflow-y:auto; flex:1; padding:0 6px 12px; }
+  .chat { display:flex; align-items:center; gap:4px; border-radius:8px; }
+  .chat:hover, .chat.on { background:var(--hover); }
+  .chat button.open { flex:1; min-width:0; text-align:left; background:none; color:var(--fg); padding:8px 8px; border:0; font:inherit; font-size:14px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chat button.del { background:none; border:0; color:var(--muted); cursor:pointer; padding:4px 8px; font-size:16px; visibility:hidden; }
+  .chat:hover button.del, .chat.on button.del { visibility:visible; }
+  .side-foot { color:var(--muted); font-size:12px; padding:10px 14px; border-top:1px solid var(--line); }
+  main { flex:1; min-width:0; display:flex; flex-direction:column; min-height:100vh; }
+  .inner { width:100%; max-width:780px; margin:0 auto; padding:0 16px; display:flex; flex-direction:column; flex:1; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 0 12px; }
   h1 { font-size:18px; margin:0; }
   .nav { color:var(--accent); font-size:13px; margin-right:auto; text-decoration:none; }
+  .menu { display:none; background:none; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:4px 10px; font:inherit; font-size:14px; cursor:pointer; }
   header label { color:var(--muted); font-size:13px; display:flex; align-items:center; gap:6px; }
   select { padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font:inherit; font-size:13px; }
   .tag { display:inline-block; font-size:12px; color:var(--accent); border:1px solid var(--line); border-radius:6px; padding:0 6px; margin-bottom:6px; }
-  #log { flex:1; display:flex; flex-direction:column; gap:12px; }
-  .msg { padding:10px 14px; border:1px solid var(--line); border-radius:10px; white-space:pre-wrap; }
+  #log { flex:1; display:flex; flex-direction:column; gap:12px; padding-bottom:8px; }
+  .empty { color:var(--muted); text-align:center; margin:auto 0; padding:40px 0; }
+  .msg { padding:10px 14px; border:1px solid var(--line); border-radius:10px; white-space:pre-wrap; overflow-wrap:anywhere; }
   .me { background:var(--me); align-self:flex-end; max-width:85%; }
   .meta { color:var(--muted); font-size:13px; margin-top:6px; white-space:normal; }
   .warn { color:#b25000; }
   .files { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; white-space:normal; }
   .file { display:inline-block; padding:6px 12px; border:1px solid var(--accent); border-radius:8px; color:var(--accent); text-decoration:none; font-size:14px; }
-  form { display:flex; gap:8px; position:sticky; bottom:0; background:var(--bg); padding:12px 0; }
+  form { display:flex; gap:8px; position:sticky; bottom:0; background:var(--bg); padding:12px 0 16px; }
   textarea { flex:1; resize:vertical; min-height:44px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); font:inherit; }
-  button { padding:0 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  form button { padding:0 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
   button:disabled { opacity:.5; }
+  .shade { display:none; }
+  @media (max-width: 760px) {
+    aside { position:fixed; left:0; top:0; z-index:20; transform:translateX(-100%); transition:transform .2s; box-shadow:0 0 24px rgba(0,0,0,.2); }
+    .app.side-open aside { transform:none; }
+    .app.side-open .shade { display:block; position:fixed; inset:0; z-index:10; background:rgba(0,0,0,.3); }
+    .menu { display:inline-block; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>Rego 知识库助手</h1>
-    <a href="/import" class="nav">导入与审核</a>
-    <label>检索方式
-      <select id="mode">
-        <option value="">默认</option>
-        <option value="full">全文（整个知识库）</option>
-        <option value="bm25">关键词（BM25）</option>
-        <option value="vector">向量</option>
-        <option value="hybrid">混合（关键词 + 向量）</option>
-        <option value="compare">对比全部四种</option>
-      </select>
-    </label>
-  </header>
-  <div id="log"></div>
-  <form id="f">
-    <textarea id="q" placeholder="用中文或英文提问，例如：外州车转入 NSW 需要哪些材料？" required></textarea>
-    <button id="b">提问</button>
-  </form>
-</main>
+<div class="app" id="app">
+  <aside>
+    <div class="side-head"><button class="new" id="new" type="button">＋ 新对话</button></div>
+    <div class="side-label">历史对话</div>
+    <div id="chats"></div>
+    <div class="side-foot">历史只保存在这台电脑的浏览器里</div>
+  </aside>
+  <div class="shade" id="shade"></div>
+  <main>
+    <div class="inner">
+      <header>
+        <button class="menu" id="menu" type="button" aria-label="历史对话">☰</button>
+        <h1>Rego 知识库助手</h1>
+        <a href="/import" class="nav">导入与审核</a>
+        <label>检索方式
+          <select id="mode">
+            <option value="">默认</option>
+            <option value="full">全文（整个知识库）</option>
+            <option value="bm25">关键词（BM25）</option>
+            <option value="vector">向量</option>
+            <option value="hybrid">混合（关键词 + 向量）</option>
+            <option value="compare">对比全部四种</option>
+          </select>
+        </label>
+      </header>
+      <div id="log"></div>
+      <form id="f">
+        <textarea id="q" placeholder="用中文或英文提问，例如：外州车转入 NSW 需要哪些材料？" required></textarea>
+        <button id="b">提问</button>
+      </form>
+    </div>
+  </main>
+</div>
 <script>
-const log = document.getElementById('log'), q = document.getElementById('q'), b = document.getElementById('b');
-const history = [];
-function add(text, cls) { const d = document.createElement('div'); d.className = 'msg ' + (cls || ''); d.textContent = text; log.appendChild(d); d.scrollIntoView(); return d; }
-const modeSel = document.getElementById('mode');
+const $ = (id) => document.getElementById(id);
+const log = $('log'), q = $('q'), b = $('b'), modeSel = $('mode');
 const MODES = { full:'全文', bm25:'关键词', vector:'向量', hybrid:'混合' };
+const KEY = 'rego-chats';
+
+// ------------------------------------------------------------ storage (this browser only)
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(chats.slice(0, 200))); } catch (e) {} }
+let chats = load();
+let current = null;  // the open conversation, or null for a new one not yet asked
+
 try { modeSel.value = localStorage.getItem('regorag-mode') || ''; } catch (e) {}
 modeSel.addEventListener('change', () => { try { localStorage.setItem('regorag-mode', modeSel.value); } catch (e) {} });
 
-async function ask(question, retrieval, showTag) {
-  const box = add('正在查找…');
-  try {
-    const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ question, history: showTag ? [] : history, retrieval: retrieval || null }) });
-    const data = await r.json();
-    box.textContent = '';
-    if (showTag) { const t = document.createElement('div'); t.className = 'tag'; t.textContent = MODES[retrieval]; box.appendChild(t); }
-    if (!r.ok) { box.appendChild(document.createTextNode(data.detail || '出错了')); box.classList.add('warn'); return null; }
-    const files = data.files || {};
-    box.appendChild(document.createTextNode(data.answer.replace(/\[\[file:([^\]\s]+)\]\]/g,
-      (m, name) => files[name] ? '「' + files[name].title + '」' : '')
-      .replace(/\s?\[\[[^\]]+\]\]/g, '')));  // citation markers; the sources are listed below
-    if (Object.keys(files).length) {
-      const row = document.createElement('div'); row.className = 'files';
-      for (const f of Object.values(files)) {
-        const a = document.createElement('a'); a.className = 'file'; a.href = f.url; a.download = '';
-        a.textContent = '下载：' + f.title; row.appendChild(a);
-      }
-      box.appendChild(row);
+// ------------------------------------------------------------ sidebar
+function renderList() {
+  const box = $('chats'); box.replaceChildren();
+  for (const c of chats) {
+    const row = document.createElement('div'); row.className = 'chat' + (current && c.id === current.id ? ' on' : '');
+    const open = document.createElement('button'); open.className = 'open'; open.type = 'button';
+    open.textContent = c.title; open.title = c.title;
+    open.onclick = () => { openChat(c.id); $('app').classList.remove('side-open'); };
+    const del = document.createElement('button'); del.className = 'del'; del.type = 'button';
+    del.textContent = '×'; del.title = '删除这段对话';
+    del.onclick = () => {
+      chats = chats.filter(x => x.id !== c.id); save();
+      if (current && current.id === c.id) newChat(); else renderList();
+    };
+    row.append(open, del); box.appendChild(row);
+  }
+}
+function newChat() { current = null; renderLog(); renderList(); q.focus(); }
+function openChat(id) { current = chats.find(c => c.id === id) || null; renderLog(); renderList(); }
+$('new').onclick = () => { newChat(); $('app').classList.remove('side-open'); };
+$('menu').onclick = () => $('app').classList.add('side-open');
+$('shade').onclick = () => $('app').classList.remove('side-open');
+
+// ------------------------------------------------------------ messages
+function add(text, cls) {
+  const d = document.createElement('div'); d.className = 'msg ' + (cls || ''); d.textContent = text;
+  log.appendChild(d); d.scrollIntoView({ block:'end' }); return d;
+}
+function renderAnswer(box, t) {
+  box.textContent = '';
+  if (t.tag) { const g = document.createElement('div'); g.className = 'tag'; g.textContent = MODES[t.tag] || t.tag; box.appendChild(g); }
+  if (t.error) { box.appendChild(document.createTextNode(t.error)); box.classList.add('warn'); return; }
+  const d = t.data, files = d.files || {};
+  box.appendChild(document.createTextNode(d.answer
+    .replace(/\[\[file:([^\]\s]+)\]\]/g, (m, name) => files[name] ? '「' + files[name].title + '」' : '')
+    .replace(/\s?\[\[[^\]]+\]\]/g, '')));  // citation markers; the sources are listed below
+  if (Object.keys(files).length) {
+    const row = document.createElement('div'); row.className = 'files';
+    for (const f of Object.values(files)) {
+      const a = document.createElement('a'); a.className = 'file'; a.href = f.url; a.download = '';
+      a.textContent = '下载：' + f.title; row.appendChild(a);
     }
-    const meta = document.createElement('div'); meta.className = 'meta';
-    const srcs = Object.entries(data.sources).map(([id, s]) => s.title + '（' + s.path + '）');
-    meta.textContent = (data.covered ? '来源：' + srcs.join('；') : '知识库未覆盖这个问题，已记录待补充。')
-      + ' · ' + (MODES[data.mode] || data.mode) + (data.search_query ? ' · 检索词：' + data.search_query : '')
-      + ' · 约 $' + data.cost_usd.toFixed(4);
-    if (!data.covered) meta.classList.add('warn');
-    box.appendChild(meta);
-    return data;
-  } catch (err) { box.textContent = '连接失败：' + err; box.classList.add('warn'); return null; }
+    box.appendChild(row);
+  }
+  const meta = document.createElement('div'); meta.className = 'meta';
+  const srcs = Object.values(d.sources || {}).map(s => s.title + '（' + s.path + '）');
+  meta.textContent = (d.covered ? '来源：' + srcs.join('；') : '知识库未覆盖这个问题，已记录待补充。')
+    + ' · ' + (MODES[d.mode] || d.mode) + (d.search_query ? ' · 检索词：' + d.search_query : '')
+    + ' · 约 $' + (d.cost_usd || 0).toFixed(4);
+  if (!d.covered) meta.classList.add('warn');
+  box.appendChild(meta);
+}
+function renderLog() {
+  log.replaceChildren();
+  if (!current || !current.turns.length) {
+    const e = document.createElement('div'); e.className = 'empty';
+    e.textContent = '有什么 rego 问题？答案只来自审核过的知识库，并标明出处。';
+    log.appendChild(e); return;
+  }
+  for (const t of current.turns) {
+    if (t.role === 'user') add(t.content, 'me'); else renderAnswer(add(''), t);
+  }
 }
 
-document.getElementById('f').addEventListener('submit', async (e) => {
+// ------------------------------------------------------------ asking
+function history() {
+  // Earlier question/answer pairs of this conversation; compare-mode and failed answers left out.
+  const out = [], turns = current ? current.turns : [];
+  for (let i = 0; i < turns.length - 1; i++) {
+    const t = turns[i], next = turns[i + 1];
+    if (t.role === 'user' && next.role === 'assistant' && !next.tag && next.data)
+      out.push({ role:'user', content:t.content }, { role:'assistant', content:next.data.answer });
+  }
+  return out;
+}
+async function ask(question, retrieval, tag, prior) {
+  const box = add('正在查找…');
+  const turn = { role:'assistant', tag };
+  try {
+    const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question, history: tag ? [] : prior.slice(-10), retrieval: retrieval || null }) });
+    const data = await r.json();
+    if (!r.ok) turn.error = data.detail || '出错了'; else turn.data = data;
+  } catch (err) { turn.error = '连接失败：' + err; }
+  renderAnswer(box, turn);
+  box.scrollIntoView({ block:'end' });
+  return turn;
+}
+$('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   const question = q.value.trim(); if (!question) return;
+  if (!current) {
+    current = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                title: question.slice(0, 40), turns: [] };
+    chats.unshift(current); log.replaceChildren();
+  }
+  const prior = history();
+  current.turns.push({ role:'user', content:question });
   add(question, 'me'); q.value = ''; b.disabled = true;
   try {
     if (modeSel.value === 'compare') {
       // Each mode answers the question on its own, without earlier turns, so they are comparable.
-      for (const m of Object.keys(MODES)) await ask(question, m, true);
+      for (const m of Object.keys(MODES)) current.turns.push(await ask(question, m, m, []));
     } else {
-      const data = await ask(question, modeSel.value);
-      if (data) history.push({ role:'user', content:question }, { role:'assistant', content:data.answer });
+      current.turns.push(await ask(question, modeSel.value, null, prior));
     }
-  } finally { b.disabled = false; q.focus(); }
+  } finally {
+    current.updated = Date.now();
+    chats = [current, ...chats.filter(c => c.id !== current.id)];
+    save(); renderList(); b.disabled = false; q.focus();
+  }
 });
+q.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('f').requestSubmit(); }
+});
+
+renderList(); renderLog();
 </script>
 </body>
-</html>

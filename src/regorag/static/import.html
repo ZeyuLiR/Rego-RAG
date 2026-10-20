@@ -38,6 +38,7 @@ textarea, input[type=text], input[type=password], select { font: inherit; color:
 textarea { width: 100%; resize: vertical; }
 #paste { min-height: 110px; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.attach { display: grid; gap: 4px; }
 .note { border-left: 3px solid var(--line); padding-left: 10px; white-space: pre-wrap; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .row .grow { flex: 1 1 auto; }
@@ -229,13 +230,25 @@ function renderProposal(p) {
     const cb = el('input'); cb.type = 'checkbox'; cb.id = `pick-${p.name}-${c.article_id}`;
     cb.checked = APPLIES.has(c.action); cb.disabled = !APPLIES.has(c.action);
     cb.onchange = () => card.classList.toggle('off', !cb.checked);
-    if (cb.checked) picks.push({ id: c.article_id, cb });
+    const pick = { id: c.article_id, cb, files: [] };
+    if (cb.checked) picks.push(pick);
     label.append(cb, el('span', 'act ' + c.action, ACT[c.action] || c.action), el('span', null, c.title));
     h.append(label, el('span', 'id', c.article_id));
     card.append(h, el('div', null, c.summary_zh));
     if (c.effective_from) card.append(el('div', 'muted', '生效日期：' + c.effective_from));
     if ((p.sources || []).length > 1 && (c.source_files || []).length) card.append(el('div', 'muted', '依据：' + c.source_files.join('、')));
-    if ((c.attach_files || []).length) card.append(el('div', 'muted', '存为附件，clerk 提问时可以下载：' + c.attach_files.join('、')));
+    if (c.draft != null && (p.originals || []).length) {
+      // The reviewer decides which uploaded files are stored with this article for download.
+      const box = el('div', 'attach');
+      box.append(el('div', 'muted', '作为附件存进知识库（clerk 提问时可以下载）：'));
+      for (const name of p.originals) {
+        const l = el('label', 'check'); const f = el('input'); f.type = 'checkbox';
+        f.checked = (c.attached || []).includes(name);
+        pick.files.push({ name, f });
+        l.append(f, el('span', null, name)); box.append(l);
+      }
+      card.append(box);
+    }
     for (const q of c.evidence || []) card.append(el('blockquote', null, q));
     if (c.draft != null) {
       const d = el('details'); d.append(el('summary', null, '查看或修改草稿'));
@@ -262,11 +275,13 @@ function renderProposal(p) {
   approve.onclick = async () => {
     const reviewer = $('reviewer').value;
     const only = picks.filter(x => x.cb.checked).map(x => x.id);
+    const attachments = {};
+    for (const x of picks) if (x.cb.checked && x.files.length) attachments[x.id] = x.files.filter(y => y.f.checked).map(y => y.name);
     if (!only.length) { msg.className = 'err grow'; msg.textContent = '请至少勾选一项。'; return; }
     approve.disabled = reject.disabled = true; msg.className = 'muted grow'; msg.textContent = '发布中…';
     try {
       const r = await call(`/api/proposals/${encodeURIComponent(p.name)}/apply`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewer, only }) });
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewer, only, attachments }) });
       msg.className = 'ok grow';
       msg.textContent = `已发布 ${r.published.length} 篇` + (r.commit ? `，已记入 Git（${r.commit}）` : '') + '。问答页马上就能用到。';
       setTimeout(loadQueue, 2500);

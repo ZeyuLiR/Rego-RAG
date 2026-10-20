@@ -150,7 +150,9 @@ used and what must be filled in. Never copy a customer's details from an example
 - When an uploaded file is a blank template or form that clerks will need to use or send, list \
 it in attach_files of the article it belongs to, so it is stored in the knowledge base and the \
 assistant can hand it to clerks. Mention it in the article's steps. Never attach a filled-in \
-example or anything containing a customer's details.
+example or anything containing a customer's details. If the reviewer note asks for a file to \
+be added to an existing article, propose an "update" of that article that keeps its content \
+and lists the file in attach_files.
 - Only use what the sources say. Every change needs verbatim evidence quotes, and source_files \
 naming the sources it came from.
 - Prefer updating an existing article over creating a new one. Use "duplicate" when the source \
@@ -406,6 +408,37 @@ def proposal_folder(inbox_dir: Path, name: str) -> Path:
     return folder
 
 
+def _split_draft(draft: Path) -> tuple[dict, str]:
+    raw = draft.read_text(encoding="utf-8")
+    match = re.match(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", raw, re.DOTALL)
+    if not match:
+        raise KBError(f"{draft.name}: front matter 缺失")
+    return yaml.safe_load(match.group(1)) or {}, match.group(2)
+
+
+def _originals(folder: Path) -> list[str]:
+    d = folder / "originals"
+    return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+
+def set_draft_attachments(folder: Path, article_id: str, originals: list[str]) -> None:
+    """The reviewer's choice of which uploaded files to store with an article: replaces the
+    attachments that come from this batch, keeps the ones the article already had."""
+    draft = folder / "drafts" / f"{article_id}.md"
+    if not _FOLDER_NAME.match(article_id) or not draft.is_file():
+        raise FileNotFoundError(f"这个提案里没有草稿：{article_id}")
+    uploaded = {safe_file_name(n): n for n in _originals(folder)}
+    meta, body = _split_draft(draft)
+    kept = [a for a in meta.get("attachments") or [] if a.get("file") not in uploaded]
+    chosen = [{"file": safe_file_name(n), "title": Path(n).stem}
+              for n in originals if safe_file_name(n) in uploaded]
+    meta["attachments"] = kept + chosen
+    if not meta["attachments"]:
+        del meta["attachments"]
+    front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
+    draft.write_text(f"---\n{front}---\n{body}", encoding="utf-8")
+
+
 def list_proposals(inbox_dir: Path) -> list[dict]:
     """Every proposal waiting for review, newest first, with its drafts' current text."""
     out = []
@@ -415,10 +448,18 @@ def list_proposals(inbox_dir: Path) -> list[dict]:
         if folder.name.startswith((".", "_")) or not (folder / "proposal.json").is_file():
             continue
         data = json.loads((folder / "proposal.json").read_text(encoding="utf-8"))
+        originals = _originals(folder)
         for change in data["changes"]:
             draft = folder / "drafts" / f"{change['article_id']}.md"
             change["draft"] = draft.read_text(encoding="utf-8") if draft.is_file() else None
-        out.append({"name": folder.name, **data})
+            change["attached"] = []
+            if change["draft"] is not None:
+                try:
+                    files = {a.get("file") for a in _split_draft(draft)[0].get("attachments") or []}
+                except (KBError, yaml.YAMLError):
+                    files = set()
+                change["attached"] = [n for n in originals if safe_file_name(n) in files]
+        out.append({"name": folder.name, "originals": originals, **data})
     return out
 
 
