@@ -73,13 +73,18 @@ blockquote { margin: 0; padding: 4px 10px; border-left: 3px solid var(--line); c
 details summary { cursor: pointer; color: var(--accent); font-size: 14px; }
 details textarea { font: 13px/1.5 var(--mono); min-height: 260px; margin-top: 8px; }
 .empty { color: var(--muted); font-size: 14px; }
+.item { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.why { font-size: 13px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); }
+.why.bad { background: var(--bad-soft); color: var(--bad); }
+.answer { white-space: pre-wrap; font-size: 14px; overflow-wrap: anywhere; }
+.toeval { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 8px; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>资料导入与审核</h1>
-    <span class="muted"><a href="/">去问答页</a> · <span id="backend"></span></span>
+    <span class="muted"><a href="/">去问答页</a> · <a href="/eval">评测集</a> · <span id="backend"></span></span>
   </header>
 
   <section class="panel" id="auth" hidden>
@@ -105,6 +110,12 @@ details textarea { font: 13px/1.5 var(--mono); min-height: 260px; margin-top: 8p
     </div>
     <div class="err" id="importErr"></div>
     <div class="jobs" id="jobs"></div>
+  </section>
+
+  <section class="panel" id="checkPanel" hidden>
+    <h2>需要复核的回答 <span id="checkCount" class="muted"></span></h2>
+    <div class="muted">回答里的数字在引用的文章中找不到，或 clerk 点了“有错”。请核对文章：需要改就在上面导入正确资料，或直接改 kb/ 里的文章；处理完点“已处理”。</div>
+    <div id="checks"></div>
   </section>
 
   <section class="panel">
@@ -299,6 +310,68 @@ function renderProposal(p) {
   return wrap;
 }
 
+// ---------------------------------------------------------------- answers to check
+async function loadChecks() {
+  let items;
+  try { items = (await call('/api/review/items')).items; } catch (e) { return; }
+  $('checkPanel').hidden = !items.length;
+  $('checkCount').textContent = items.length ? `（${items.length}）` : '';
+  $('checks').replaceChildren(...items.map(renderCheck));
+}
+function renderCheck(it) {
+  const box = el('div', 'item');
+  const when = new Date(it.ts * 1000).toLocaleString('zh-CN', { hour12: false });
+  const head = el('div', 'row');
+  head.append(el('strong', 'grow', it.question), el('span', 'muted', (it.user_name || '未署名') + ' · ' + when));
+  box.append(head);
+  if ((it.unverified || []).length) box.append(el('div', 'why', '数字没有出处：' + it.unverified.join('、')));
+  if (it.feedback === 'down') box.append(el('div', 'why bad', 'clerk 反馈有错' + (it.comment ? '：' + it.comment : '')));
+  const cited = (it.source_links || []).map(s => s.title + (s.path ? '（' + s.path + '）' : ''));
+  box.append(el('div', 'muted', cited.length ? '引用：' + cited.join('；') : '没有引用文章'));
+  const d = el('details'); d.append(el('summary', null, '看回答原文'), el('div', 'answer', it.answer)); box.append(d);
+
+  const note = el('input'); note.type = 'text'; note.className = 'grow'; note.placeholder = '处理说明，例如“已更新 reg-renewal 的费用”';
+  const done = el('button', 'primary', '已处理'); done.type = 'button';
+  const toEval = el('button', null, '加入评测集'); toEval.type = 'button';
+  const msg = el('span', 'muted');
+  done.onclick = async () => {
+    done.disabled = true;
+    try {
+      await call(`/api/review/items/${it.id}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewer: $('reviewer').value, note: note.value }) });
+      box.remove(); loadChecks();
+    } catch (e) { msg.className = 'err'; msg.textContent = e.message; done.disabled = false; }
+  };
+  toEval.onclick = () => {
+    toEval.disabled = true;
+    const f = el('div', 'toeval');
+    const facts = el('input'); facts.type = 'text'; facts.placeholder = '正确答案必须包含的要点，用 ; 分开，例如：$45; Blue Slip; 14 days';
+    const expect = el('input'); expect.type = 'text'; expect.value = [...new Set((it.sources || []).map(s => s.split('#')[0]))].join(', ');
+    expect.placeholder = '应引用的文章 id，用逗号分开';
+    const refuse = el('input'); refuse.type = 'checkbox';
+    const rl = el('label', 'check'); rl.append(refuse, el('span', null, '知识库没有这个内容，正确做法是说不知道'));
+    const save = el('button', 'primary', '保存到评测集'); save.type = 'button';
+    const m = el('span', 'muted');
+    save.onclick = async () => {
+      save.disabled = true;
+      const split = (v, sep) => v.split(sep).map(x => x.trim()).filter(Boolean);
+      try {
+        await call(`/api/review/items/${it.id}/to-eval`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: it.question, collection: it.collection || 'rego',
+            expect: split(expect.value, /[,，]/), must_include: split(facts.value, /[;；]/), should_refuse: refuse.checked,
+            added_by: $('reviewer').value, notes: '来自问答反馈' + (it.comment ? '：' + it.comment : '') }) });
+        m.className = 'ok'; m.textContent = '已加入评测集';
+      } catch (e) { m.className = 'err'; m.textContent = e.message; save.disabled = false; }
+    };
+    const r = el('div', 'row'); r.append(save, m);
+    f.append(el('div', 'muted', '应引用的文章'), expect, el('div', 'muted', '必备要点'), facts, rl, r);
+    box.append(f); facts.focus();
+  };
+  const actions = el('div', 'row'); actions.append(note, toEval, done);
+  box.append(actions, msg);
+  return box;
+}
+
 // ---------------------------------------------------------------- start
 async function start() {
   let info;
@@ -310,7 +383,7 @@ async function start() {
   $('collection').replaceChildren(...Object.entries(info.collections).map(([k, t]) => { const o = el('option', null, t); o.value = k; return o; }));
   $('reviewer').replaceChildren(...info.reviewers.map(n => { const o = el('option', null, n); o.value = n; return o; }));
   if (store.get('rego-reviewer')) $('reviewer').value = store.get('rego-reviewer');
-  loadQueue(); pollJobs();
+  loadChecks(); loadQueue(); pollJobs();
 }
 $('reviewer').onchange = () => store.set('rego-reviewer', $('reviewer').value);
 $('tokenGo').onclick = () => { store.set('rego-admin-token', $('token').value); start(); };

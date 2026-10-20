@@ -2,7 +2,8 @@
 
 Run with `regorag serve` (or `uvicorn regorag.api:app`).
   /        chat page for clerks (a Teams bot can later call the same /api/ask)
-  /import  drag-and-drop import and the review queue, for reviewers
+  /import  drag-and-drop import, the review queue and answers that need checking, for reviewers
+  /eval    the answer eval set: add questions, run it, read the last report
 """
 
 from __future__ import annotations
@@ -11,6 +12,10 @@ import hmac
 import secrets
 import subprocess
 import tempfile
+import threading
+import time
+import uuid
+from dataclasses import asdict
 from importlib import resources
 from pathlib import Path
 
@@ -18,6 +23,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from . import evals
 from .app import build_app
 from .chats import ChatStore, open_chat_store
 from .importer import ALLOWED_SUFFIXES, MAX_FILE_BYTES, ImportQueue
@@ -37,6 +43,34 @@ class AskRequest(BaseModel):
     collection: str = "rego"
     history: list[dict] = []
     retrieval: str | None = None  # override the default mode for this question
+    user: str = ""  # the name typed on the chat page, for the answer log
+
+
+class FeedbackRequest(BaseModel):
+    answer_id: str
+    helpful: bool
+    comment: str = ""
+
+
+class ResolveRequest(BaseModel):
+    reviewer: str
+    note: str = ""
+
+
+class EvalItemRequest(BaseModel):
+    id: str = ""
+    question: str
+    collection: str = "rego"
+    expect: list[str] = []
+    must_include: list[str] = []
+    should_refuse: bool = False
+    added_by: str = ""
+    notes: str = ""
+
+
+class EvalRunRequest(BaseModel):
+    retrieval: str | None = None
+    judge: bool = False
 
 
 class ChatRequest(BaseModel):
@@ -60,16 +94,16 @@ def _page(name: str) -> str:
     return resources.files("regorag").joinpath(f"static/{name}").read_text(encoding="utf-8")
 
 
-def _git_commit(root: Path, message: str) -> str | None:
-    """Commit kb/ changes so Git history records who approved what. Returns the short hash."""
+def _git_commit(root: Path, message: str, paths: tuple[str, ...] = ("kb",)) -> str | None:
+    """Commit kb/ (or other) changes so Git history records who changed what. Returns the short hash."""
     def git(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace")
 
     if git("rev-parse", "--is-inside-work-tree").returncode != 0:
         return None
-    git("add", "kb")
-    if git("commit", "-m", message).returncode != 0:
+    git("add", *paths)
+    if git("commit", "-m", message, "--", *paths).returncode != 0:
         return None
     return git("rev-parse", "--short", "HEAD").stdout.strip() or None
 
@@ -118,6 +152,7 @@ def create_app(regorag_app=None) -> FastAPI:
             raise HTTPException(400, f"检索方式只能是 {', '.join(MODES)}")
         history = [Turn(t["role"], t["content"]) for t in req.history[-10:]
                    if t.get("role") in {"user", "assistant"} and t.get("content")]
+        started = time.monotonic()
         try:
             ans = a.qa.ask(req.question, req.collection, history, req.retrieval)
         except VectorSearchUnavailable as exc:
@@ -143,8 +178,35 @@ def create_app(regorag_app=None) -> FastAPI:
             att = a.kb.attachment(req.collection, name)
             if att:
                 files[name] = {"title": att.label, "url": f"/files/{req.collection}/{name}"}
+        # Every answer is logged; one with a figure missing from its sources goes straight on
+        # the reviewers' list, so the article can be checked and corrected.
+        answer_id = uuid.uuid4().hex[:12]
+        versions = {}
+        for src in ans.sources:
+            art = a.kb.get(src.split("#")[0])
+            if art:
+                versions[art.id] = art.meta.version
+        try:
+            chats().log_answer({
+                "id": answer_id, "user_name": req.user.strip()[:60], "collection": req.collection,
+                "question": req.question, "answer": ans.text, "mode": ans.mode,
+                "search_query": ans.search_query, "sources": ans.sources, "unverified": ans.unverified,
+                "kb_versions": versions, "cost_usd": ans.cost_usd,
+                "latency_ms": int((time.monotonic() - started) * 1000)})
+        except Exception:  # the log must never cost the clerk their answer
+            answer_id = None
         return {"answer": ans.text, "sources": links, "files": files, "covered": ans.covered,
-                "mode": ans.mode, "search_query": ans.search_query, "cost_usd": ans.cost_usd}
+                "mode": ans.mode, "search_query": ans.search_query, "cost_usd": ans.cost_usd,
+                "unverified": ans.unverified, "answer_id": answer_id}
+
+    @api.post("/api/feedback")
+    def feedback(req: FeedbackRequest) -> dict:
+        """A clerk's 有帮助 / 有错. "Wrong" puts the answer on the reviewers' list."""
+        store = chats()
+        if store.get_answer(req.answer_id) is None:
+            raise HTTPException(404, "找不到这条回答")
+        store.set_feedback(req.answer_id, req.helpful, req.comment.strip()[:2000])
+        return {"ok": True}
 
     # ------------------------------------------------------------ chat history
 
@@ -192,6 +254,35 @@ def create_app(regorag_app=None) -> FastAPI:
         if att is None or not path.is_file():
             raise HTTPException(404, "没有这个文件")
         return FileResponse(path, filename=name)
+
+    # ------------------------------------------------------------ answers to check
+
+    def links_for(sources: list[str]) -> list[dict]:
+        a = get()
+        out = []
+        for src in sources:
+            art = a.kb.get(src.split("#")[0])
+            out.append({"id": src, "title": art.meta.title if art else src,
+                        "path": str(art.path.relative_to(a.settings.kb_dir)) if art else ""})
+        return out
+
+    @api.get("/api/review/items", dependencies=admin)
+    def review_items() -> dict:
+        """Answers with a figure not found in their sources, or marked wrong by a clerk."""
+        items = chats().open_items()
+        for it in items:
+            it["source_links"] = links_for(it["sources"])
+        return {"items": items}
+
+    @api.post("/api/review/items/{answer_id}/resolve", dependencies=admin)
+    def resolve_item(answer_id: str, req: ResolveRequest) -> dict:
+        if not req.reviewer.strip():
+            raise HTTPException(400, "请选择审核人")
+        store = chats()
+        if store.get_answer(answer_id) is None:
+            raise HTTPException(404, "找不到这条回答")
+        store.resolve(answer_id, req.reviewer.strip(), req.note.strip()[:2000])
+        return {"ok": True}
 
     @api.get("/api/usage")
     def usage() -> dict:
@@ -308,6 +399,81 @@ def create_app(regorag_app=None) -> FastAPI:
         a = get()
         close_proposal(folder_or_404(name), a.settings.inbox_dir, "rejected")
         return {"ok": True}
+
+    # ------------------------------------------------------------ eval set
+
+    eval_state: dict = {"running": None, "error": None}
+    eval_lock = threading.Lock()
+
+    @api.get("/eval", response_class=HTMLResponse)
+    def eval_page() -> str:
+        return _page("eval.html")
+
+    @api.get("/api/eval/items", dependencies=admin)
+    def eval_items() -> dict:
+        a = get()
+        return {"items": [asdict(i) for i in evals.load_items(a.settings.eval_file)],
+                "articles": [{"id": art.id, "title": art.meta.title}
+                             for c in a.collections for art in a.kb.live(c)]}
+
+    @api.put("/api/eval/items", dependencies=admin)
+    def save_eval_item(req: EvalItemRequest) -> dict:
+        a = get()
+        try:
+            item = evals.upsert(a.settings.eval_file, req.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        _git_commit(a.settings.root, f"Eval set: save {item.id} ({item.added_by or 'unknown'})", ("eval",))
+        return {"item": item.to_dict()}
+
+    @api.delete("/api/eval/items/{item_id}", dependencies=admin)
+    def delete_eval_item(item_id: str) -> dict:
+        a = get()
+        evals.remove(a.settings.eval_file, item_id)
+        _git_commit(a.settings.root, f"Eval set: remove {item_id}", ("eval",))
+        return {"ok": True}
+
+    @api.post("/api/review/items/{answer_id}/to-eval", dependencies=admin)
+    def item_to_eval(answer_id: str, req: EvalItemRequest) -> dict:
+        """Turn a checked answer into an eval question (the reviewer fills in the right facts)."""
+        if chats().get_answer(answer_id) is None:
+            raise HTTPException(404, "找不到这条回答")
+        return save_eval_item(req)
+
+    @api.post("/api/eval/run", dependencies=admin)
+    def run_eval(req: EvalRunRequest) -> dict:
+        """Ask every eval question in the background (this costs usage) and save a report."""
+        a = get()
+        if req.retrieval and req.retrieval not in MODES:
+            raise HTTPException(400, f"检索方式只能是 {', '.join(MODES)}")
+        items = evals.load_items(a.settings.eval_file)
+        if not items:
+            raise HTTPException(400, "评测集还没有问题")
+        with eval_lock:
+            if eval_state["running"]:
+                raise HTTPException(409, "评测正在运行，请等它结束")
+            eval_state.update(running={"done": 0, "total": len(items), "question": ""}, error=None)
+
+        def progress(n, total, item):
+            eval_state["running"] = {"done": n - 1, "total": total, "question": item.question}
+
+        def work():
+            try:
+                report = evals.run(a.qa, items, req.retrieval, req.judge, progress)
+                evals.save_report(a.settings.eval_reports, report)
+            except Exception as exc:
+                eval_state["error"] = str(exc)
+            finally:
+                eval_state["running"] = None
+
+        threading.Thread(target=work, daemon=True).start()
+        return {"ok": True, "total": len(items)}
+
+    @api.get("/api/eval/status", dependencies=admin)
+    def eval_status() -> dict:
+        return {"running": eval_state["running"], "error": eval_state["error"],
+                "report": evals.latest_report(get().settings.eval_reports),
+                "check_names": evals.CHECK_NAMES}
 
     api.state.import_queue = queue
     return api

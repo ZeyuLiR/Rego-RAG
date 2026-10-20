@@ -99,6 +99,31 @@ def cmd_eval_retrieval(args, settings: Settings) -> int:
     return 0
 
 
+def cmd_eval(args, settings: Settings) -> int:
+    """Ask every eval question, score the answers and save a report (this costs usage)."""
+    from . import evals
+
+    path = Path(args.file) if args.file else settings.eval_file
+    items = evals.load_items(path)
+    if not items:
+        print(f"{path} 里还没有问题。可以在网页 /eval 上添加。", file=sys.stderr)
+        return 1
+    app = build_app(settings)
+    report = evals.run(app.qa, items, args.retrieval, args.judge,
+                       lambda n, total, it: print(f"[{n}/{total}] {it.question}", file=sys.stderr))
+    out = evals.save_report(settings.eval_reports, report)
+    print(f"\n通过 {report['passed']}/{report['total']} · 约 ${report['cost_usd']}")
+    for k, v in report["rates"].items():
+        if v is not None:
+            print(f"  {evals.CHECK_NAMES.get(k, k)}：{v:.0%}")
+    for r in report["results"]:
+        if not r["passed"]:
+            bad = [evals.CHECK_NAMES.get(k, k) for k, ok in r.get("checks", {}).items() if not ok]
+            print(f"  ✗ {r['id']} {r['question']}  {r.get('error') or '、'.join(bad)}")
+    print(f"报告：{out}")
+    return 0
+
+
 def cmd_index(args, settings: Settings) -> int:
     """Embed every live section now, so the first vector question is not slow."""
     app = build_app(settings)
@@ -178,7 +203,7 @@ def cmd_serve(args, settings: Settings) -> int:
 
     port = _free_port(args.host, args.port)
     url = f"http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{port}"
-    print(f"知识库已启动：问答 {url}  ·  导入与审核 {url}/import")
+    print(f"知识库已启动：问答 {url}  ·  导入与审核 {url}/import  ·  评测集 {url}/eval")
     if args.open:
         threading.Timer(1.5, webbrowser.open, [url]).start()
     uvicorn.run("regorag.api:app", host=args.host, port=port, log_level="warning")
@@ -212,6 +237,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--modes", nargs="+", choices=SECTION_MODES, default=SECTION_MODES)
     s.add_argument("--no-rewrite", action="store_true", help="直接用原问题检索，不调用模型")
     s.set_defaults(fn=cmd_eval_retrieval)
+
+    s = sub.add_parser("eval", help="跑评测集：每题问一次模型并打分（会产生费用）")
+    s.add_argument("file", nargs="?", help="默认 eval/questions.yaml")
+    s.add_argument("--retrieval", choices=MODES)
+    s.add_argument("--judge", action="store_true", help="另请模型评判是否忠于原文（费用约翻倍）")
+    s.set_defaults(fn=cmd_eval)
 
     s = sub.add_parser("index", help="预先建立向量索引（首次会下载向量模型）")
     s.add_argument("--collection", default="rego")

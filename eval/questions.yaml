@@ -1,0 +1,12 @@
+# Answer eval set. Edit here or on the /eval page.
+# Each item: question, must_include (facts a good answer states), expect (article ids it
+# should cite), should_refuse (true when the KB does not cover it), added_by, notes.
+# Replace these examples with real clerk questions (goal: 50-100).
+- id: q-001
+  question: 外州车转入 NSW 需要哪些材料？
+  expect:
+  - reg-interstate-transfer
+  must_include:
+  - Blue Slip
+  added_by: example
+  notes: example; replace with a real clerk question

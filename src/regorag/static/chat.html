@@ -42,6 +42,12 @@
   .me { background:var(--me); align-self:flex-end; max-width:85%; }
   .meta { color:var(--muted); font-size:13px; margin-top:6px; white-space:normal; }
   .warn { color:#b25000; }
+  .check { white-space:normal; margin-top:8px; padding:8px 10px; border-radius:8px; background:#fff4e0; color:#7a3d00; border:1px solid #f0c98a; font-size:14px; }
+  @media (prefers-color-scheme: dark) { .check { background:#3a2a10; color:#ffd59a; border-color:#6b4a1a; } }
+  .fb { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; white-space:normal; font-size:13px; color:var(--muted); }
+  .fb button { background:none; border:1px solid var(--line); border-radius:8px; color:var(--fg); font:inherit; font-size:13px; padding:2px 10px; cursor:pointer; }
+  .fb button.on { border-color:var(--accent); color:var(--accent); }
+  .fb input { flex:1; min-width:160px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font:inherit; font-size:13px; }
   .files { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; white-space:normal; }
   .file { display:inline-block; padding:6px 12px; border:1px solid var(--accent); border-radius:8px; color:var(--accent); text-decoration:none; font-size:14px; }
   form { display:flex; gap:8px; position:sticky; bottom:0; background:var(--bg); padding:12px 0 16px; }
@@ -219,7 +225,44 @@ function renderAnswer(box, t) {
     + ' · ' + (MODES[d.mode] || d.mode) + (d.search_query ? ' · 检索词：' + d.search_query : '')
     + ' · 约 $' + (d.cost_usd || 0).toFixed(4);
   if (!d.covered) meta.classList.add('warn');
+  if ((d.unverified || []).length) {
+    // A figure the answer gives that is not in the articles it cites: warn, do not hide.
+    const c = document.createElement('div'); c.className = 'check';
+    c.textContent = '⚠ 这些数字在引用的资料里没找到：' + d.unverified.join('、')
+      + '。请先找审核人或资深 clerk 复核后再用。已自动通知维护人检查并更新知识库。';
+    box.appendChild(c);
+  }
   box.appendChild(meta);
+  if (d.answer_id) box.appendChild(feedbackRow(t));
+}
+function feedbackRow(t) {
+  const row = document.createElement('div'); row.className = 'fb';
+  const send = async (helpful, comment) => {
+    try {
+      await api('/api/feedback', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ answer_id: t.data.answer_id, helpful, comment }) });
+    } catch (e) { row.append(' 没能提交：' + e.message); return; }
+    t.feedback = { helpful, comment }; saveCurrent();
+    row.replaceWith(feedbackRow(t));
+  };
+  if (t.feedback) {
+    row.textContent = t.feedback.helpful ? '已反馈：有帮助，谢谢。'
+      : '已反馈：有错' + (t.feedback.comment ? '（' + t.feedback.comment + '）' : '') + '。维护人会核对并更新知识库。';
+    return row;
+  }
+  const up = document.createElement('button'); up.type = 'button'; up.textContent = '👍 有帮助';
+  const down = document.createElement('button'); down.type = 'button'; down.textContent = '👎 有错';
+  up.onclick = () => send(true, '');
+  down.onclick = () => {
+    row.replaceChildren();
+    const input = document.createElement('input'); input.placeholder = '哪里不对？正确的是什么？（可不填）';
+    const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = '提交';
+    ok.onclick = () => send(false, input.value.trim());
+    input.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); ok.click(); } };
+    row.append(input, ok); input.focus();
+  };
+  row.append('这个回答：', up, down);
+  return row;
 }
 function renderLog() {
   log.replaceChildren();
@@ -249,7 +292,7 @@ async function ask(question, retrieval, tag, prior) {
   const turn = { role:'assistant', tag };
   try {
     const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ question, history: tag ? [] : prior.slice(-10), retrieval: retrieval || null }) });
+      body: JSON.stringify({ question, user, history: tag ? [] : prior.slice(-10), retrieval: retrieval || null }) });
     const data = await r.json();
     if (!r.ok) turn.error = data.detail || '出错了'; else turn.data = data;
   } catch (err) { turn.error = '连接失败：' + err; }

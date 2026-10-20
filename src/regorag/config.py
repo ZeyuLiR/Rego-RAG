@@ -43,6 +43,14 @@ class Settings:
     # server is reachable by anyone other than reviewers.
     admin_token: str = ""
 
+    @property
+    def eval_file(self) -> Path:  # the answer eval set, shared through Git like kb/
+        return self.root / "eval" / "questions.yaml"
+
+    @property
+    def eval_reports(self) -> Path:
+        return self.root / "data" / "eval"
+
     @classmethod
     def from_env(cls) -> "Settings":
         _load_dotenv(REPO_ROOT / ".env")

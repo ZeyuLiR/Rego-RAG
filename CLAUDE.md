@@ -51,9 +51,11 @@ owner's go-ahead: they cost money or plan usage. `regorag usage` shows spend so 
 - `src/regorag/usage.py` — usage log, price table, monthly budget
 - `src/regorag/ingest.py` — read/redact/extract → `inbox/` proposal; `apply_proposal`
 - `src/regorag/review.py` — reviewers and `publish`
-- `src/regorag/api.py`, `static/chat.html`, `static/import.html`, `cli.py` — entry points
+- `src/regorag/api.py`, `static/chat.html`, `static/import.html`, `static/eval.html`, `cli.py` — entry points
 - `src/regorag/importer.py` — background import job queue for the web page
-- `src/regorag/chats.py` — server-side chat history: `ChatStore` protocol, SQLite and PostgreSQL, `open_chat_store(url)`
+- `src/regorag/numbers.py` — figure extraction and `unverified()` (answer figures missing from sources)
+- `src/regorag/evals.py` — eval set load/save/upsert, scoring, `run`, reports
+- `src/regorag/chats.py` — server-side chat history and the answer log (`QALog`): `ChatStore` protocol, SQLite and PostgreSQL, `open_chat_store(url)`
 
 ## Progress
 
@@ -99,6 +101,15 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       separated but not protected). Older browser-only history migrates on first use. Enter sends.
 - [x] start.py update falls back to `git pull --rebase --autostash` because approvals commit kb/
       locally, and prints the current version so the owner can tell whether an update landed.
+- [x] Answer quality, step 1 of the RAG plan (owner-approved 2026-10-20):
+      `numbers.py` checks every fee/date/time limit/percentage/form number in an answer against the
+      cited articles (normalised, no model call). A miss only warns: the chat tells the clerk to have
+      a reviewer/senior clerk re-check it, and the answer goes on "需要复核的回答" on `/import` so the
+      maintainer updates the KB. Every answer is logged (`QALog` in `chats.py`, `qa_log` table) with
+      cited article versions, cost, latency; clerks' 有帮助/有错 feedback (`/api/feedback`) puts wrong
+      answers on the same list. Eval set (`evals.py`, `eval/questions.yaml`, page `/eval`, CLI
+      `regorag eval [--judge]`): several contributors, mainly the owner; scores cited/facts/refusal/
+      figures (+ optional model judge); reports in `data/eval/`.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`
@@ -107,7 +118,7 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
 
 Phase 2 (upload and review UI): basic version done (`/import`); still to do: forward-to-mailbox
 intake, side-by-side source/diff view.
-Phase 3: feedback buttons, review-date reminders, Teams bot, permissions per role.
+Phase 3: review-date reminders, Teams bot, permissions per role.
 Phase 4 (optional): contradiction scan, MCP server, a vector database server behind `VectorStore` if the KB grows.
 
 Keep this Progress section current at the end of each work session so a new session (cloud or

@@ -46,6 +46,7 @@ def store(request, tmp_path):
         pytest.skip("set REGORAG_TEST_POSTGRES_URL to test PostgreSQL")
     s = open_chat_store(PG_URL, tmp_path)
     s._run("DELETE FROM chats")
+    s._run("DELETE FROM qa_log")
     return s
 
 
@@ -59,6 +60,19 @@ def test_every_store_behaves_the_same(store):
     assert [(c["id"], c["title"]) for c in store.list("Amy")] == [("c1", "一改"), ("c2", "二")]
     store.delete("Amy", "c1")
     assert store.get("Amy", "c1") is None and store.get("Bob", "c1")["title"] == "Bob"
+
+
+def test_every_store_keeps_the_answer_log(store):
+    store.log_answer({"id": "a1", "question": "q1", "sources": ["reg-renewal"], "unverified": [],
+                      "kb_versions": {"reg-renewal": 2}, "cost_usd": 0.01, "latency_ms": 900})
+    store.log_answer({"id": "a2", "question": "q2", "unverified": ["$99"]})
+    assert store.get_answer("a1")["kb_versions"] == {"reg-renewal": 2}
+    assert [i["id"] for i in store.open_items()] == ["a2"]
+    store.set_feedback("a1", False, "wrong fee")
+    assert {i["id"] for i in store.open_items()} == {"a1", "a2"}
+    store.resolve("a2", "Zeyu", "updated the article")
+    assert [i["id"] for i in store.open_items()] == ["a1"]
+    assert store.get_answer("a2")["resolved_by"] == "Zeyu"
 
 
 def test_unknown_database_url_is_refused(tmp_path):

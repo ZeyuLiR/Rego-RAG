@@ -1,4 +1,6 @@
-"""Chat history kept on the server, so a clerk sees their conversations from any computer.
+"""What the chat page keeps on the server: each clerk's conversations (so they see them from
+any computer) and a log of every answer (what it read, its cost, the figures that could not be
+checked, and the clerk's feedback), which feeds the reviewers' "needs checking" list.
 
 Conversations are filed under the name the clerk enters on the chat page; there are no logins
 yet, so this keeps history apart but does not protect it (phase 3 adds logins).
@@ -29,6 +31,20 @@ class ChatStore(Protocol):
     def delete(self, user: str, chat_id: str) -> None: ...
 
 
+class QALog(Protocol):
+    def log_answer(self, rec: dict) -> None: ...  # see LOG_FIELDS
+    def get_answer(self, answer_id: str) -> dict | None: ...
+    def set_feedback(self, answer_id: str, helpful: bool, comment: str) -> None: ...
+    def open_items(self) -> list[dict]: ...  # answers that need a reviewer, newest first
+    def resolve(self, answer_id: str, by: str, note: str) -> None: ...
+
+
+LOG_FIELDS = ("id", "ts", "user_name", "collection", "question", "answer", "mode", "search_query",
+              "sources", "unverified", "kb_versions", "cost_usd", "latency_ms", "feedback",
+              "comment", "status", "resolved_by", "resolved_at", "resolution")
+_JSON_FIELDS = {"sources", "unverified", "kb_versions"}
+
+
 class _SQLStore:
     """Shared SQL for databases with a DB-API driver; subclasses supply `_db` and `PARAM`."""
 
@@ -51,8 +67,53 @@ class _SQLStore:
             db.commit()
             return rows
 
+    LOG_SCHEMA = ("CREATE TABLE IF NOT EXISTS qa_log (id TEXT PRIMARY KEY, ts DOUBLE PRECISION NOT NULL, "
+                  "user_name TEXT, collection TEXT, question TEXT, answer TEXT, mode TEXT, "
+                  "search_query TEXT, sources TEXT, unverified TEXT, kb_versions TEXT, "
+                  "cost_usd DOUBLE PRECISION, latency_ms INTEGER, feedback TEXT, comment TEXT, "
+                  "status TEXT NOT NULL, resolved_by TEXT, resolved_at DOUBLE PRECISION, resolution TEXT)")
+
     def _init(self) -> None:
         self._run(self.SCHEMA)
+        self._run(self.LOG_SCHEMA)
+
+    # ------------------------------------------------------------ answer log
+
+    @staticmethod
+    def _row(row) -> dict:
+        rec = dict(zip(LOG_FIELDS, row))
+        for k in _JSON_FIELDS:
+            rec[k] = json.loads(rec[k]) if rec[k] else []
+        return rec
+
+    def log_answer(self, rec: dict) -> None:
+        rec = {**rec, "ts": rec.get("ts") or time.time(),
+               "status": "open" if rec.get("unverified") else "ok"}
+        values = tuple(json.dumps(rec.get(k) or [], ensure_ascii=False) if k in _JSON_FIELDS
+                       else rec.get(k) for k in LOG_FIELDS)
+        self._run(f"INSERT INTO qa_log ({', '.join(LOG_FIELDS)}) VALUES "
+                  f"({', '.join('?' * len(LOG_FIELDS))})", values)
+
+    def get_answer(self, answer_id: str) -> dict | None:
+        rows = self._run(f"SELECT {', '.join(LOG_FIELDS)} FROM qa_log WHERE id = ?", (answer_id,), fetch=True)
+        return self._row(rows[0]) if rows else None
+
+    def set_feedback(self, answer_id: str, helpful: bool, comment: str) -> None:
+        """A clerk's verdict. "Wrong" puts the answer on the reviewers' list."""
+        if helpful:
+            self._run("UPDATE qa_log SET feedback = 'up', comment = ? WHERE id = ?", (comment, answer_id))
+        else:
+            self._run("UPDATE qa_log SET feedback = 'down', comment = ?, status = 'open' WHERE id = ?",
+                      (comment, answer_id))
+
+    def open_items(self) -> list[dict]:
+        rows = self._run(f"SELECT {', '.join(LOG_FIELDS)} FROM qa_log WHERE status = 'open' "
+                         "ORDER BY ts DESC LIMIT 200", fetch=True)
+        return [self._row(r) for r in rows]
+
+    def resolve(self, answer_id: str, by: str, note: str) -> None:
+        self._run("UPDATE qa_log SET status = 'resolved', resolved_by = ?, resolved_at = ?, "
+                  "resolution = ? WHERE id = ?", (by, time.time(), note, answer_id))
 
     def list(self, user: str) -> list[dict]:
         rows = self._run("SELECT id, title, updated FROM chats WHERE user_name = ? "
@@ -108,8 +169,9 @@ class PostgresChatStore(_SQLStore):
         return self._connect()
 
 
-def open_chat_store(url: str, root: Path) -> ChatStore:
-    """`sqlite:///relative/or/absolute/path.db` or `postgresql://...`."""
+def open_chat_store(url: str, root: Path) -> _SQLStore:
+    """The store behind REGORAG_CHAT_DB; it implements both `ChatStore` and `QALog`."""
+    # url: sqlite:///relative/or/absolute/path.db or postgresql://...
     scheme = urlparse(url).scheme
     if scheme == "sqlite":
         path = Path(url.split("sqlite:///", 1)[1])

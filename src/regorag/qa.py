@@ -11,6 +11,7 @@ from pathlib import Path
 from .kb import KnowledgeBase
 from .llm import LLM, text_of
 from .retrieval import MODES, Context, Retriever, build_retriever
+from .numbers import unverified
 from .vectors import Embedder
 
 SYSTEM_PROMPT = """\
@@ -55,6 +56,7 @@ class Answer:
     search_query: str | None = None
     cost_usd: float = 0.0
     files: list[str] = field(default_factory=list)  # attachment file names offered in the answer
+    unverified: list[str] = field(default_factory=list)  # figures not found in the cited articles
 
 
 @dataclass
@@ -118,6 +120,10 @@ class QAService:
             + [{"role": "user", "content": question}],
         )
         answer = self._parse(text_of(response), context, search_query)
+        if answer.sources:
+            cited = {s.split("#")[0] for s in answer.sources}
+            texts = [a.render_for_model() for a in self.kb.live(collection) if a.id in cited]
+            answer.unverified = unverified(answer.text, texts, question)
         answer.cost_usd = round(sum(r.cost_usd for r in self.llm.usage.records()[calls_before:]), 6)
         if not answer.covered:
             self._log_gap(question, collection)

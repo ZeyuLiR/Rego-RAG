@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>评测集</title>
+<style>
+/* Layout: one working column. Import on top (drop zone + paste box + progress), the review queue below. */
+:root {
+  --bg: #f5f7f7; --surface: #ffffff; --fg: #17201f; --muted: #5d6b69; --line: #d9e1df;
+  --accent: #0f6e66; --accent-ink: #ffffff; --accent-soft: #e1f0ee;
+  --warn: #9a5b00; --warn-soft: #fbf0dd; --bad: #b3261e; --bad-soft: #fbe5e3; --good: #1f7a3a; --good-soft: #e2f3e7;
+  --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Consolas, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #111716; --surface: #182120; --fg: #e6eeec; --muted: #9aa9a6; --line: #2a3634;
+  --accent: #5cc3b8; --accent-ink: #0b1514; --accent-soft: #1b3330;
+  --warn: #f0b45c; --warn-soft: #33281a; --bad: #ff8a80; --bad-soft: #3a1f1d; --good: #7fd49a; --good-soft: #1c3324; color-scheme: dark } }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--sans); }
+main { max-width: 880px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+h1 { margin: 0; font-size: 21px; font-weight: 600; }
+h2 { margin: 0; font-size: 16px; font-weight: 600; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+#drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px 16px; text-align: center; cursor: pointer; display: grid; gap: 4px; }
+#drop.over { border-color: var(--accent); background: var(--accent-soft); }
+#drop b { font-size: 16px; font-weight: 600; }
+.files { display: flex; flex-wrap: wrap; gap: 6px; }
+.file { display: inline-flex; gap: 6px; align-items: center; font: 13px var(--mono); border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 10px; max-width: 100%; }
+.file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file button { border: 0; background: none; color: var(--muted); padding: 0 6px; font-size: 15px; }
+textarea, input[type=text], input[type=password], select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+textarea { width: 100%; resize: vertical; }
+#paste { min-height: 110px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.attach { display: grid; gap: 4px; }
+.note { border-left: 3px solid var(--line); padding-left: 10px; white-space: pre-wrap; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row .grow { flex: 1 1 auto; }
+button { font: 500 14px var(--sans); border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 7px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.danger { color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.jobs { display: grid; gap: 6px; }
+.job { display: flex; gap: 10px; align-items: baseline; font-size: 14px; flex-wrap: wrap; }
+.job .name { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.queued { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.pill.running { background: var(--accent-soft); color: var(--accent); }
+.pill.done { background: var(--good-soft); color: var(--good); }
+.pill.error { background: var(--bad-soft); color: var(--bad); }
+.err { color: var(--bad); font-size: 13px; }
+.ok { color: var(--good); font-size: 13px; }
+.proposal { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 10px; }
+.proposal:first-of-type { border-top: 0; padding-top: 0; }
+.change { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.change.off { opacity: .6; }
+.change-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.change-head label { display: inline-flex; gap: 8px; align-items: baseline; font-weight: 600; cursor: pointer; }
+.id { font: 12px var(--mono); color: var(--muted); }
+.act { font-size: 12px; padding: 1px 8px; border-radius: 4px; font-weight: 600; }
+.act.new { background: var(--good-soft); color: var(--good); }
+.act.update { background: var(--accent-soft); color: var(--accent); }
+.act.retire, .act.conflict { background: var(--bad-soft); color: var(--bad); }
+.act.duplicate { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+blockquote { margin: 0; padding: 4px 10px; border-left: 3px solid var(--line); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+details summary { cursor: pointer; color: var(--accent); font-size: 14px; }
+details textarea { font: 13px/1.5 var(--mono); min-height: 260px; margin-top: 8px; }
+.empty { color: var(--muted); font-size: 14px; }
+.item { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.why { font-size: 13px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); }
+.why.bad { background: var(--bad-soft); color: var(--bad); }
+.answer { white-space: pre-wrap; font-size: 14px; overflow-wrap: anywhere; }
+.toeval { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 8px; }
+</style>
+<style>
+/* Eval page additions: question list, editor, run report. */
+label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+label.field input, label.field textarea { color: var(--fg); font-size: 15px; }
+.q { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; min-width: 0; }
+.q .row strong { flex: 1 1 auto; overflow-wrap: anywhere; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.tags span { border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.stat { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.stat b { display: block; font-size: 20px; }
+.fail { border-left: 3px solid var(--bad); padding: 4px 10px; display: grid; gap: 4px; }
+.answer { white-space: pre-wrap; font-size: 14px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>评测集</h1>
+    <span class="muted"><a href="/">问答页</a> · <a href="/import">导入与审核</a></span>
+  </header>
+
+  <section class="panel" id="auth" hidden>
+    <h2>需要管理口令</h2>
+    <div class="row"><input type="password" id="token" class="grow" placeholder="REGORAG_ADMIN_TOKEN"><button class="primary" id="tokenGo" type="button">进入</button></div>
+  </section>
+
+  <section class="panel">
+    <h2 id="formTitle">加一个问题</h2>
+    <div class="muted">用 clerk 真实问过的问题。写清楚好答案必须包含什么，系统每次改动后都能自动检查。</div>
+    <label class="field">问题<textarea id="question" rows="2" placeholder="例如：外州车转入 NSW 需要哪些材料？"></textarea></label>
+    <label class="field">必备要点（用 ; 分开。数字写任何格式都行，$45 和 45 澳元算同一个）<input type="text" id="facts" placeholder="Blue Slip; proof of identity; $45"></label>
+    <label class="field">应引用的文章 id（用逗号分开，可不填）<input type="text" id="expect" list="articles" placeholder="reg-interstate-transfer"></label>
+    <datalist id="articles"></datalist>
+    <label class="check"><input type="checkbox" id="refuse"> 知识库没有这个内容，正确做法是说不知道</label>
+    <label class="field">备注<input type="text" id="notes" placeholder="来源、为什么加这题"></label>
+    <div class="row">
+      <label class="muted" for="author">出题人</label><input type="text" id="author" placeholder="你的名字">
+      <span class="grow"></span>
+      <button type="button" id="cancel" hidden>取消修改</button>
+      <button class="primary" type="button" id="save">保存</button>
+    </div>
+    <div id="formMsg" class="muted"></div>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2 class="grow">问题 <span id="count" class="muted"></span></h2>
+      <input type="text" id="filter" placeholder="筛选（问题或出题人）"></div>
+    <div id="list"><div class="empty">加载中…</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>运行评测</h2>
+    <div class="muted">每个问题都会真的问一次模型（会用掉额度）。改了提示词、检索方式或批量更新知识库之后跑一次，对比通过率。</div>
+    <div class="row">
+      <label class="muted" for="mode">检索方式</label>
+      <select id="mode"><option value="">默认</option><option value="full">全文</option><option value="bm25">关键词</option><option value="vector">向量</option><option value="hybrid">混合</option></select>
+      <label class="check muted"><input type="checkbox" id="judge"> 另请模型评判是否忠于原文（费用约翻倍）</label>
+      <span class="grow"></span>
+      <button class="primary" type="button" id="run">开始评测</button>
+    </div>
+    <div id="runMsg" class="muted"></div>
+    <div id="report"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+async function call(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {}, { 'X-Admin-Token': store.get('rego-admin-token') });
+  const r = await fetch(path, Object.assign({}, opts, { headers }));
+  if (r.status === 401) { $('auth').hidden = false; throw new Error('需要管理口令'); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || ('出错了（' + r.status + '）'));
+  return body;
+}
+const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const split = (v, sep) => v.split(sep).map(x => x.trim()).filter(Boolean);
+
+let items = [], editing = '', titles = {};
+$('author').value = store.get('rego-eval-author');
+
+// ---------------------------------------------------------------- questions
+async function load() {
+  let data;
+  try { data = await call('/api/eval/items'); } catch (e) { $('list').replaceChildren(el('div', 'err', e.message)); return; }
+  $('auth').hidden = true;
+  items = data.items;
+  titles = Object.fromEntries(data.articles.map(a => [a.id, a.title]));
+  $('articles').replaceChildren(...data.articles.map(a => { const o = el('option'); o.value = a.id; o.label = a.title; return o; }));
+  renderList();
+}
+function renderList() {
+  const f = $('filter').value.trim().toLowerCase();
+  const shown = items.filter(i => !f || (i.question + ' ' + i.added_by).toLowerCase().includes(f));
+  $('count').textContent = `（${items.length}）`;
+  const box = $('list'); box.replaceChildren();
+  if (!shown.length) { box.append(el('div', 'empty', items.length ? '没有符合筛选的问题。' : '还没有问题。目标是 50-100 个真实问题。')); return; }
+  for (const it of shown) {
+    const q = el('div', 'q');
+    const head = el('div', 'row');
+    const edit = el('button', null, '修改'); edit.type = 'button'; edit.onclick = () => startEdit(it);
+    const del = el('button', 'danger', '删除'); del.type = 'button';
+    let armed = false;
+    del.onclick = async () => {
+      if (!armed) { armed = true; del.textContent = '确认删除？'; setTimeout(() => { armed = false; del.textContent = '删除'; }, 4000); return; }
+      try { await call('/api/eval/items/' + encodeURIComponent(it.id), { method: 'DELETE' }); load(); } catch (e) { alert(e.message); }
+    };
+    head.append(el('span', 'id', it.id), el('strong', null, it.question), edit, del);
+    const tags = el('div', 'tags');
+    if (it.should_refuse) tags.append(el('span', null, '应回答“不知道”'));
+    for (const x of it.must_include) tags.append(el('span', null, '要点：' + x));
+    for (const x of it.expect) tags.append(el('span', null, '引用：' + (titles[x.split('#')[0]] || x)));
+    q.append(head, tags);
+    if (it.added_by || it.notes) q.append(el('div', 'muted', [it.added_by && '出题：' + it.added_by, it.notes].filter(Boolean).join(' · ')));
+    box.append(q);
+  }
+}
+function startEdit(it) {
+  editing = it.id;
+  $('formTitle').textContent = '修改 ' + it.id;
+  $('question').value = it.question; $('facts').value = it.must_include.join('; ');
+  $('expect').value = it.expect.join(', '); $('refuse').checked = it.should_refuse; $('notes').value = it.notes;
+  $('cancel').hidden = false; $('formMsg').textContent = '';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function resetForm() {
+  editing = ''; $('formTitle').textContent = '加一个问题'; $('cancel').hidden = true;
+  for (const id of ['question', 'facts', 'expect', 'notes']) $(id).value = '';
+  $('refuse').checked = false;
+}
+$('cancel').onclick = () => { resetForm(); $('formMsg').textContent = ''; };
+$('filter').oninput = renderList;
+$('save').onclick = async () => {
+  const msg = $('formMsg');
+  if (!$('question').value.trim()) { msg.className = 'err'; msg.textContent = '请填写问题。'; return; }
+  if (!$('author').value.trim()) { msg.className = 'err'; msg.textContent = '请填写出题人。'; $('author').focus(); return; }
+  store.set('rego-eval-author', $('author').value.trim());
+  const old = items.find(i => i.id === editing);
+  try {
+    const r = await call('/api/eval/items', json('PUT', { id: editing, question: $('question').value,
+      must_include: split($('facts').value, /[;；]/), expect: split($('expect').value, /[,，]/),
+      should_refuse: $('refuse').checked, notes: $('notes').value,
+      added_by: old ? old.added_by : $('author').value.trim() }));
+    msg.className = 'ok'; msg.textContent = '已保存 ' + r.item.id; resetForm(); load();
+  } catch (e) { msg.className = 'err'; msg.textContent = e.message; }
+};
+
+// ---------------------------------------------------------------- run and report
+let polling = null;
+async function status() {
+  clearTimeout(polling);
+  let s;
+  try { s = await call('/api/eval/status'); } catch (e) { return; }
+  const msg = $('runMsg');
+  if (s.running) {
+    $('run').disabled = true; msg.className = 'muted';
+    msg.textContent = `正在评测 ${s.running.done}/${s.running.total}：${s.running.question}`;
+    polling = setTimeout(status, 3000);
+  } else {
+    $('run').disabled = false;
+    msg.className = s.error ? 'err' : 'muted'; msg.textContent = s.error ? '上次评测出错：' + s.error : '';
+  }
+  renderReport(s.report, s.check_names);
+}
+function renderReport(r, names) {
+  const box = $('report'); box.replaceChildren();
+  if (!r) { box.append(el('div', 'empty', '还没有评测结果。')); return; }
+  box.append(el('div', 'muted', `上次评测：${r.ts.replace('T', ' ')} · 检索方式 ${r.mode} · ${r.total} 题 · 约 $${r.cost_usd}`));
+  const stats = el('div', 'stats');
+  const tile = (label, value) => { const t = el('div', 'stat'); t.append(el('b', null, value), el('span', 'muted', label)); return t; };
+  stats.append(tile('全部通过', `${r.passed}/${r.total}`));
+  for (const [k, v] of Object.entries(r.rates)) if (v != null) stats.append(tile(names[k] || k, Math.round(v * 100) + '%'));
+  box.append(stats);
+  const fails = r.results.filter(x => !x.passed);
+  if (fails.length) box.append(el('h2', null, `没通过的 ${fails.length} 题`));
+  for (const x of fails) {
+    const f = el('div', 'fail');
+    f.append(el('strong', null, x.id + '  ' + x.question));
+    if (x.error) f.append(el('div', 'err', '出错：' + x.error));
+    const bad = Object.entries(x.checks || {}).filter(([, ok]) => !ok).map(([k]) => names[k] || k);
+    if (bad.length) f.append(el('div', 'err', '没做到：' + bad.join('、')));
+    if ((x.missing || []).length) f.append(el('div', 'muted', '缺少要点：' + x.missing.join('、')));
+    if ((x.unverified || []).length) f.append(el('div', 'muted', '没出处的数字：' + x.unverified.join('、')));
+    if (x.judge && x.judge.note) f.append(el('div', 'muted', '评判：' + x.judge.note));
+    if (x.answer) { const d = el('details'); d.append(el('summary', null, '看回答'), el('div', 'answer', x.answer)); f.append(d); }
+    box.append(f);
+  }
+}
+$('run').onclick = async () => {
+  if (!confirm(`将把 ${items.length} 个问题都问一遍模型，会用掉额度。继续？`)) return;
+  try { await call('/api/eval/run', json('POST', { retrieval: $('mode').value || null, judge: $('judge').checked })); status(); }
+  catch (e) { $('runMsg').className = 'err'; $('runMsg').textContent = e.message; }
+};
+$('tokenGo').onclick = () => { store.set('rego-admin-token', $('token').value); load(); status(); };
+load(); status();
+</script>
+</body>
+</html>
