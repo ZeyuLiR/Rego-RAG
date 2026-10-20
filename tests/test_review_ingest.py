@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from regorag.app import build_app
-from regorag.ingest import Proposal, ProposedChange, apply_proposal, propose, redact
+from regorag.ingest import BatchProposal, Topic, ProposedChange, apply_proposal, propose, redact
 from regorag.kb import load_kb
 from regorag.review import Reviewer, ReviewPolicy, publish
 from conftest import FakeClient
@@ -41,7 +41,7 @@ def test_redact_removes_personal_data():
 def test_import_then_apply_round_trip(workspace, tmp_path):
     src = tmp_path / "notice.txt"
     src.write_text("From 1 July 2026 interstate vehicles also need proof of address. Contact jo@x.com")
-    proposal = Proposal(source_summary_zh="外州转入新增地址证明要求。", changes=[
+    proposal = BatchProposal(topics=[Topic(title_zh="测试", source_summary_zh="外州转入新增地址证明要求。", changes=[
         ProposedChange(action="update", article_id="reg-interstate-transfer",
                        title="Interstate vehicle transfer", category="registration",
                        summary_zh="材料清单加上地址证明。", effective_from="2026-07-01",
@@ -50,11 +50,11 @@ def test_import_then_apply_round_trip(workspace, tmp_path):
         ProposedChange(action="new", article_id="reg-proof-of-address", title="Proof of address",
                        category="registration", summary_zh="新文章", evidence=["proof of address"],
                        article_markdown="## What you need\n\nA utility bill."),
-    ])
+    ])])
     client = FakeClient(parsed=proposal)
     app = build_app(workspace, client=client)
     coll = app.collections["rego"]
-    folder = propose(src, app.kb, "rego", app.llm, "claude-opus-5-5", coll.template(),
+    (folder,) = propose(src, app.kb, "rego", app.llm, "claude-opus-5-5", coll.template(),
                      list(coll.categories), workspace.inbox_dir, today=dt.date(2026, 10, 19))
 
     assert "jo@x.com" not in (folder / "source.md").read_text()

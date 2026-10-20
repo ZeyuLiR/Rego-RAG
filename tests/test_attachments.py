@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from regorag.api import create_app
 from regorag.app import build_app
-from regorag.ingest import Proposal, ProposedChange
+from regorag.ingest import BatchProposal, Topic, ProposedChange
 from regorag.kb import KBError, load_kb, safe_file_name
 from conftest import FakeClient, article
 
@@ -16,12 +16,12 @@ def test_safe_file_name():
 
 
 def test_template_is_stored_on_approval_and_offered_in_answers(workspace):
-    proposal = Proposal(source_summary_zh="de-rego 流程和信件模板。", changes=[ProposedChange(
+    proposal = BatchProposal(topics=[Topic(title_zh="测试", source_summary_zh="de-rego 流程和信件模板。", changes=[ProposedChange(
         action="new", article_id="reg-deregistration", title="De-registration", category="registration",
         summary_zh="新文章", evidence=["cancel the registration"],
         source_files=["process.txt", "DEREGO LETTER - template.docx"],
         attach_files=["DEREGO LETTER - template.docx", "not-uploaded.docx"],
-        article_markdown="## Steps\n\n1. Send the de-registration letter template.")])
+        article_markdown="## Steps\n\n1. Send the de-registration letter template.")])])
     fake = FakeClient(parsed=proposal, replies=[
         "用这个模板 [[file:derego-letter-template.docx]]，别用 [[file:secret.docx]] [[reg-deregistration]]\n"
         "SOURCES: reg-deregistration"])

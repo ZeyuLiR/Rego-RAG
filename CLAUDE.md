@@ -80,7 +80,9 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
 - [x] Batch import: files and pasted text submitted together are extracted in one call
       (`ingest.propose_batch`); the pasted text is a `<reviewer_note>` on how they relate. One
       proposal folder per batch (`originals/`, per-change `source_files`). "分开整理" / `--separate`
-      restores one proposal per file. The owner asked for related files to be considered together.
+      restores one proposal per file. The owner asked for related files to be considered together,
+      and for different matters in one batch to be reviewed separately: the model returns
+      `BatchProposal.topics`, and each topic becomes its own proposal folder / review card.
 - [x] Windows: Claude Code via npm is a `claude.cmd` shim; `ClaudeCodeClient.command()` runs the
       bundled `claude.exe` (or node + cli.js). Output decoded as UTF-8. Owner runs Windows.
 - [x] Attachments: blank templates/forms live in `kb/<collection>/files/`, listed in an article's

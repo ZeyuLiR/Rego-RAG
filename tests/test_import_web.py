@@ -4,16 +4,16 @@ from fastapi.testclient import TestClient
 
 from regorag.api import create_app
 from regorag.app import build_app
-from regorag.ingest import Proposal, ProposedChange, pasted_source_name
+from regorag.ingest import BatchProposal, Topic, ProposedChange, pasted_source_name
 from conftest import FakeClient
 
-PROPOSAL = Proposal(source_summary_zh="新增地址证明要求。", changes=[
+PROPOSAL = BatchProposal(topics=[Topic(title_zh="测试", source_summary_zh="新增地址证明要求。", changes=[
     ProposedChange(action="new", article_id="reg-proof-of-address", title="Proof of address",
                    category="registration", summary_zh="新文章", evidence=["proof of address"],
                    article_markdown="## What you need\n\nA utility bill."),
     ProposedChange(action="duplicate", article_id="reg-renewal", title="Registration renewal",
                    category="registration", summary_zh="没有新内容", evidence=["renewal"]),
-])
+])])
 
 
 def client_for(settings, proposal=PROPOSAL):
@@ -127,3 +127,33 @@ def test_pasted_source_name():
     assert pasted_source_name("From: x\nSubject: New CTP rules 2026\n\nbody") == "new-ctp-rules-2026.txt"
     assert pasted_source_name("主题：外州转入\n正文").endswith(".txt")
     assert pasted_source_name("no subject here").startswith("pasted-")
+
+
+def test_different_matters_in_one_batch_become_separate_reviews(workspace):
+    def change(aid, title):
+        return ProposedChange(action="new", article_id=aid, title=title, category="registration",
+                              summary_zh=title, evidence=["x"], article_markdown="## Steps\n\n1. Do it.")
+    two = BatchProposal(topics=[
+        Topic(title_zh="注销流程", source_summary_zh="de-rego", source_files=["notice.txt"],
+              changes=[change("reg-deregistration", "De-registration")]),
+        Topic(title_zh="地址证明", source_summary_zh="address", source_files=["memo.md"],
+              changes=[change("reg-proof-of-address", "Proof of address")]),
+    ])
+    http, queue = client_for(workspace, two)
+    http.post("/api/import", files=FILES, data={"collection": "rego"})
+    queue.wait()
+    (job,) = http.get("/api/import/jobs").json()["jobs"]
+    assert len(job["proposals"]) == 2 and job["changes"] == 2
+    assert len(http.fake.requests) == 1  # still read together in one call
+
+    props = {p["topic"]: p for p in http.get("/api/proposals").json()["proposals"]}
+    assert set(props) == {"注销流程", "地址证明"}
+    dereg = props["注销流程"]
+    assert dereg["sources"] == ["notice.txt"] and dereg["name"].endswith("-reg-deregistration")
+    folder = workspace.inbox_dir / dereg["name"]
+    assert [p.name for p in (folder / "originals").iterdir()] == ["notice.txt"]
+    assert "memo.md" not in (folder / "source.md").read_text()
+
+    # Approving one matter leaves the other waiting for review.
+    assert http.post(f"/api/proposals/{dereg['name']}/apply", json={"reviewer": "Zeyu"}).status_code == 200
+    assert [p["topic"] for p in http.get("/api/proposals").json()["proposals"]] == ["地址证明"]

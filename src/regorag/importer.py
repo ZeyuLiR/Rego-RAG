@@ -23,7 +23,7 @@ class Job:
     id: str
     name: str
     status: str = "queued"  # queued | running | done | error
-    proposal: str | None = None  # inbox folder name once done
+    proposals: list[str] = field(default_factory=list)  # inbox folder names once done
     changes: int | None = None
     error: str | None = None
     created_at: str = field(default_factory=lambda: dt.datetime.now().isoformat(timespec="seconds"))
@@ -35,20 +35,20 @@ class ImportQueue:
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="regorag-import")
 
-    def submit(self, name: str, work: Callable[[], Path]) -> Job:
+    def submit(self, name: str, work: Callable[[], list[Path]]) -> Job:
         job = Job(id=uuid.uuid4().hex[:12], name=name)
         with self._lock:
             self._jobs[job.id] = job
         self._pool.submit(self._run, job, work)
         return job
 
-    def _run(self, job: Job, work: Callable[[], Path]) -> None:
+    def _run(self, job: Job, work: Callable[[], list[Path]]) -> None:
         job.status = "running"
         try:
-            folder = work()
-
-            data = json.loads((folder / "proposal.json").read_text(encoding="utf-8"))
-            job.proposal, job.changes, job.status = folder.name, len(data["changes"]), "done"
+            folders = work()
+            job.changes = sum(len(json.loads((f / "proposal.json").read_text(encoding="utf-8"))["changes"])
+                              for f in folders)
+            job.proposals, job.status = [f.name for f in folders], "done"
         except Exception as exc:  # shown to the reviewer on the page
             job.status, job.error = "error", str(exc) or exc.__class__.__name__
 

@@ -188,7 +188,8 @@ async function pollJobs() {
   for (const j of jobs.slice(0, 20)) {
     const row = el('div', 'job');
     row.append(el('span', 'pill ' + j.status, STATUS[j.status]), el('span', 'name', j.name));
-    if (j.status === 'done') row.append(el('span', 'muted', j.changes ? `${j.changes} 处改动，见下方待审核` : '没有需要修改的内容，见下方'));
+    if (j.status === 'done') row.append(el('span', 'muted', !j.changes ? '没有需要修改的内容，见下方'
+      : (j.proposals || []).length > 1 ? `分成 ${j.proposals.length} 份审核，共 ${j.changes} 处改动，见下方` : `${j.changes} 处改动，见下方待审核`));
     if (j.status === 'error') row.append(el('span', 'err', j.error));
     box.append(row);
   }
@@ -214,8 +215,9 @@ async function loadQueue() {
 function renderProposal(p) {
   const wrap = el('div', 'proposal');
   const head = el('div', 'row');
-  head.append(el('strong', 'grow', p.source), el('span', 'muted', p.name.slice(0, 10)));
+  head.append(el('strong', 'grow', p.topic || p.source), el('span', 'muted', p.name.slice(0, 10)));
   wrap.append(head);
+  if (p.topic) wrap.append(el('div', 'muted', '资料：' + p.source));
   if (p.note) wrap.append(el('div', 'note muted', '说明：' + p.note));
   wrap.append(el('div', null, p.source_summary_zh));
   const picks = [];

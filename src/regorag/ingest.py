@@ -117,6 +117,17 @@ class Proposal(BaseModel):
     changes: list[ProposedChange]
 
 
+class Topic(Proposal):
+    """One distinct matter in a batch; each topic becomes its own proposal to review."""
+    title_zh: str = Field(description="A short Chinese name for this matter, shown to the reviewer")
+    source_files: list[str] = Field(default_factory=list,
+                                    description="Names of the sources this matter comes from")
+
+
+class BatchProposal(BaseModel):
+    topics: list[Topic]
+
+
 EXTRACT_PROMPT = """\
 You maintain a reviewed knowledge base for rego (vehicle registration) clerks in NSW, Australia. \
 New source material has arrived: one or more documents (emails, notices, PDFs, Word files) \
@@ -124,10 +135,13 @@ uploaded together, sometimes with a note from the reviewer. Work out what, if an
 changes in the knowledge base, and propose those changes for a human reviewer.
 
 Rules:
-- Read all the sources together before deciding anything. Documents uploaded together are \
-often parts of one matter, for example a process document, the letter template it uses and a \
-filled-in example. Combine what belongs together into as few coherent articles as the topics \
-need, rather than one article per file. Keep unrelated topics in separate articles.
+- Read all the sources together before deciding anything, then group the batch into topics: \
+one topic per distinct matter. Documents about the same matter, for example a process \
+document, the letter template it uses and a filled-in example, belong to one topic and are \
+combined into as few coherent articles as it needs, rather than one article per file. Sources \
+that say different things about different matters go into separate topics, even when they \
+arrived together: each topic is reviewed and approved separately. A source may belong to \
+more than one topic. When nothing in the batch is relevant, return one topic with no changes.
 - A <reviewer_note>, when present, is from the reviewer: it may say how the documents relate, \
 what event they concern or what to focus on. Follow it. If it also states facts, you may use \
 them, quoting the note as evidence.
@@ -148,7 +162,7 @@ For an update, keep everything in the existing article that the source does not 
 - Keep fees, dates and form numbers exactly as written. Never include personal details about \
 customers.
 - If the sources contain nothing relevant to rego work, return no changes.
-- Write summary_zh and source_summary_zh in Chinese."""
+- Write title_zh, summary_zh and source_summary_zh in Chinese."""
 
 
 @dataclass
@@ -160,15 +174,15 @@ class Source:
 
 def propose(source_path: Path, kb: KnowledgeBase, collection: str, llm: LLM, model: str,
             template: str, categories: list[str], inbox_dir: Path,
-            today: dt.date | None = None) -> Path:
-    """Read, redact and extract one file; write the proposal folder and return it."""
+            today: dt.date | None = None) -> list[Path]:
+    """Read, redact and extract one file; write its proposal folders and return them."""
     return propose_batch([Source(source_path.name, read_document(source_path), source_path)], "",
                          kb, collection, llm, model, template, categories, inbox_dir, today)
 
 
 def propose_text(source_name: str, raw_text: str, kb: KnowledgeBase, collection: str, llm: LLM,
                  model: str, template: str, categories: list[str], inbox_dir: Path,
-                 today: dt.date | None = None) -> Path:
+                 today: dt.date | None = None) -> list[Path]:
     """Same as `propose`, for text that is already extracted (e.g. a pasted email)."""
     return propose_batch([Source(source_name, raw_text)], "", kb, collection, llm, model,
                          template, categories, inbox_dir, today)
@@ -194,8 +208,11 @@ def batch_name(sources: list[Source], note: str) -> str:
 
 def propose_batch(sources: list[Source], note: str, kb: KnowledgeBase, collection: str, llm: LLM,
                   model: str, template: str, categories: list[str], inbox_dir: Path,
-                  today: dt.date | None = None) -> Path:
-    """Extract changes from several sources read together, plus an optional reviewer note."""
+                  today: dt.date | None = None) -> list[Path]:
+    """Extract changes from several sources read together, plus an optional reviewer note.
+
+    The model groups the batch into topics (distinct matters); each topic is written as its
+    own proposal folder, so different matters are reviewed and approved separately."""
     today = today or dt.date.today()
     note = redact(note.strip())
     texts = [(s, redact(s.text)) for s in sources]
@@ -206,7 +223,7 @@ def propose_batch(sources: list[Source], note: str, kb: KnowledgeBase, collectio
         "extract",
         model=model,
         max_tokens=32000,
-        output_format=Proposal,
+        output_format=BatchProposal,
         system=[
             {"type": "text", "text": EXTRACT_PROMPT},
             {"type": "text", "text": f"<categories>{', '.join(categories)}</categories>\n"
@@ -217,17 +234,27 @@ def propose_batch(sources: list[Source], note: str, kb: KnowledgeBase, collectio
         ],
         messages=[{"role": "user", "content": content}],
     )
-    source_md = "\n\n".join(([f"# 说明\n\n{note}"] if note else [])
-                             + [f"# {s.name}\n\n{t}" for s, t in texts])
-    folder = write_proposal(response.parsed_output, batch_name(sources, note),
-                            [s.name for s in sources], source_md, kb, collection, inbox_dir, today,
-                            note)
-    originals = [s.original for s in sources if s.original]
-    if originals:
-        (folder / "originals").mkdir()
-        for path in originals:
-            shutil.copyfile(path, folder / "originals" / path.name)
-    return folder
+    names = [s.name for s in sources]
+    topics = response.parsed_output.topics or [
+        Topic(title_zh="没有可整理的内容", source_summary_zh="模型没有从这批资料中找到相关内容。",
+              source_files=names, changes=[])]
+    base = batch_name(sources, note)
+    folders = []
+    for i, topic in enumerate(topics, 1):
+        used = [n for n in names if n in topic.source_files] or names
+        picked = [(s, t) for s, t in texts if s.name in used]
+        source_md = "\n\n".join(([f"# 说明\n\n{note}"] if note else [])
+                                 + [f"# {s.name}\n\n{t}" for s, t in picked])
+        name = base if len(topics) == 1 else \
+            f"{base}-{topic.changes[0].article_id if topic.changes else i}"
+        folder = write_proposal(topic, name, used, source_md, kb, collection, inbox_dir, today, note)
+        originals = [s.original for s, _ in picked if s.original]
+        if originals:
+            (folder / "originals").mkdir()
+            for path in originals:
+                shutil.copyfile(path, folder / "originals" / path.name)
+        folders.append(folder)
+    return folders
 
 
 def pasted_source_name(text: str, now: dt.datetime | None = None) -> str:
@@ -249,14 +276,16 @@ def write_proposal(proposal: Proposal, name: str, source_names: list[str], sourc
         folder = inbox_dir / f"{today.isoformat()}-{slug}-{n}"
         n += 1
     title = " + ".join(source_names)
+    topic = getattr(proposal, "title_zh", "")
     (folder / "drafts").mkdir(parents=True)
     (folder / "source.md").write_text(source_text, encoding="utf-8")
     (folder / "proposal.json").write_text(
         json.dumps({"collection": collection, "source": title, "sources": source_names,
-                    "note": note, **proposal.model_dump()}, ensure_ascii=False, indent=2),
+                    "note": note, "topic": topic,
+                    **proposal.model_dump(exclude={"title_zh", "source_files"})}, ensure_ascii=False, indent=2),
         encoding="utf-8")
 
-    lines = [f"# 待审核：{title}", ""]
+    lines = [f"# 待审核：{topic or title}", ""] + ([f"资料：{title}", ""] if topic else [])
     if note:
         lines += ["说明：", ""] + [f"> {line}" for line in note.splitlines()] + [""]
     lines += [proposal.source_summary_zh, ""]

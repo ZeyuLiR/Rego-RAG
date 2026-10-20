@@ -115,10 +115,11 @@ def cmd_import(args, settings: Settings) -> int:
     paths = [Path(f) for f in args.files]
     batches = [[p] for p in paths] if args.separate else [paths]
     for batch in batches:
-        folder = propose_batch(read_sources(batch), args.note or "", app.kb, args.collection, app.llm,
-                               settings.extract_model, coll.template(), list(coll.categories),
-                               settings.inbox_dir)
-        print(f"{' + '.join(p.name for p in batch)} → 待审核：{folder / 'REVIEW.md'}")
+        folders = propose_batch(read_sources(batch), args.note or "", app.kb, args.collection, app.llm,
+                                settings.extract_model, coll.template(), list(coll.categories),
+                                settings.inbox_dir)
+        for folder in folders:
+            print(f"{' + '.join(p.name for p in batch)} → 待审核：{folder / 'REVIEW.md'}")
     return 0
 
 
