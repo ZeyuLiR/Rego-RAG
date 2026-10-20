@@ -15,7 +15,7 @@ from importlib import resources
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from .app import build_app
@@ -122,8 +122,23 @@ def create_app(regorag_app=None) -> FastAPI:
             if art:
                 links[src] = {"title": art.meta.title,
                               "path": str(art.path.relative_to(a.settings.kb_dir))}
-        return {"answer": ans.text, "sources": links, "covered": ans.covered,
+        files = {}
+        for name in ans.files:
+            att = a.kb.attachment(req.collection, name)
+            if att:
+                files[name] = {"title": att.label, "url": f"/files/{req.collection}/{name}"}
+        return {"answer": ans.text, "sources": links, "files": files, "covered": ans.covered,
                 "mode": ans.mode, "search_query": ans.search_query, "cost_usd": ans.cost_usd}
+
+    @api.get("/files/{collection}/{name}")
+    def attachment(collection: str, name: str) -> FileResponse:
+        """Download an attachment. Only files listed by a live article are served."""
+        a = get()
+        att = a.kb.attachment(collection, name)
+        path = a.settings.kb_dir / collection / "files" / name
+        if att is None or not path.is_file():
+            raise HTTPException(404, "没有这个文件")
+        return FileResponse(path, filename=name)
 
     @api.get("/api/usage")
     def usage() -> dict:

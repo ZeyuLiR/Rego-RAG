@@ -31,7 +31,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field
 
-from .kb import KBError, KnowledgeBase, parse_article, slugify
+from .kb import KBError, KnowledgeBase, parse_article, safe_file_name, slugify
 from .llm import LLM
 from .review import ReviewPolicy, publish
 
@@ -102,6 +102,10 @@ class ProposedChange(BaseModel):
     evidence: list[str] = Field(description="Verbatim quotes from the sources supporting the change")
     source_files: list[str] = Field(default_factory=list,
                                     description="Names of the sources this change is based on")
+    attach_files: list[str] = Field(
+        default_factory=list,
+        description="Names of uploaded files to store with this article so clerks can download "
+                    "and use them as-is (blank templates, forms). Never a filled-in example.")
     article_markdown: str | None = Field(
         default=None,
         description="For new/update: the complete article body in Markdown (no front matter), "
@@ -129,6 +133,10 @@ what event they concern or what to focus on. Follow it. If it also states facts,
 them, quoting the note as evidence.
 - For templates and filled-in examples, describe what the form or letter is for, when it is \
 used and what must be filled in. Never copy a customer's details from an example.
+- When an uploaded file is a blank template or form that clerks will need to use or send, list \
+it in attach_files of the article it belongs to, so it is stored in the knowledge base and the \
+assistant can hand it to clerks. Mention it in the article's steps. Never attach a filled-in \
+example or anything containing a customer's details.
 - Only use what the sources say. Every change needs verbatim evidence quotes, and source_files \
 naming the sources it came from.
 - Prefer updating an existing article over creating a new one. Use "duplicate" when the source \
@@ -260,6 +268,8 @@ def write_proposal(proposal: Proposal, name: str, source_names: list[str], sourc
             lines += [f"生效日期：{c.effective_from}", ""]
         if c.source_files:
             lines += [f"依据资料：{'、'.join(c.source_files)}", ""]
+        if c.attach_files:
+            lines += [f"存为附件（clerk 可在问答中下载）：{'、'.join(c.attach_files)}", ""]
         lines += ["原文依据：", ""] + [f"> {q}" for q in c.evidence] + [""]
         if c.action in {"new", "update"} and c.article_markdown:
             existing = kb.get(c.article_id)
@@ -274,6 +284,7 @@ def write_proposal(proposal: Proposal, name: str, source_names: list[str], sourc
                                    *([f for f in c.source_files if f in source_names] or source_names)}),
                 "version": (existing.meta.version + 1) if existing else 1,
                 "owner": existing.meta.owner if existing else None,
+                "attachments": _attachments(existing, c.attach_files, source_names) or None,
             }
             meta = {k: v for k, v in meta.items() if v is not None}
             front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
@@ -288,6 +299,29 @@ def write_proposal(proposal: Proposal, name: str, source_names: list[str], sourc
     return folder
 
 
+def _attachments(existing, attach_files: list[str], source_names: list[str]) -> list[dict]:
+    """Existing attachments plus newly attached uploads, as front matter entries."""
+    out = [a.model_dump(exclude_none=True) for a in (existing.meta.attachments if existing else [])]
+    for name in attach_files:
+        if name in source_names and not any(a["file"] == safe_file_name(name) for a in out):
+            out.append({"file": safe_file_name(name), "title": Path(name).stem})
+    return out
+
+
+def _attachment_copies(folder: Path, article, kb_dir: Path) -> list[tuple[Path, Path]]:
+    """Uploaded originals to copy into kb/<collection>/files/ for a draft's attachments."""
+    files_dir = kb_dir / article.collection / "files"
+    originals = {safe_file_name(p.name): p for p in (folder / "originals").glob("*")} \
+        if (folder / "originals").is_dir() else {}
+    copies = []
+    for att in article.meta.attachments:
+        if att.file in originals:
+            copies.append((originals[att.file], files_dir / att.file))
+        elif not (files_dir / att.file).is_file():
+            raise KBError(f"{article.id}: 附件 {att.file} 不在上传的资料里，也不在知识库中")
+    return copies
+
+
 def apply_proposal(folder: Path, kb: KnowledgeBase, kb_dir: Path, policy: ReviewPolicy,
                    reviewer: str, only: list[str] | None = None) -> list[Path]:
     """Copy approved drafts into kb/ and publish them; archive retired articles."""
@@ -296,6 +330,7 @@ def apply_proposal(folder: Path, kb: KnowledgeBase, kb_dir: Path, policy: Review
     changes = [c for c in data["changes"]
                if c["action"] in {"new", "update", "retire"} and (not only or c["article_id"] in only)]
     # Check everything first so a refusal or a broken draft never leaves a half-applied proposal.
+    copies: dict[str, list[tuple[Path, Path]]] = {}
     for change in changes:
         ok, why = policy.can_approve(reviewer, collection, change["category"])
         if not ok:
@@ -305,6 +340,7 @@ def apply_proposal(folder: Path, kb: KnowledgeBase, kb_dir: Path, policy: Review
             article = parse_article(draft, collection)
             if article is None or article.id != change["article_id"]:
                 raise KBError(f"{draft.name}: front matter 缺失，或 id 与提案不一致")
+            copies[article.id] = _attachment_copies(folder, article, kb_dir)
     written: list[Path] = []
     for change in changes:
         aid = change["article_id"]
@@ -315,6 +351,9 @@ def apply_proposal(folder: Path, kb: KnowledgeBase, kb_dir: Path, policy: Review
                 continue
             target = existing.path if existing else kb_dir / collection / change["category"] / f"{aid}.md"
             target.parent.mkdir(parents=True, exist_ok=True)
+            for src, dest in copies.get(aid, []):
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dest)
             shutil.copyfile(draft, target)
             written.append(publish(target, kb_dir, policy, reviewer))
         elif change["action"] == "retire" and existing:

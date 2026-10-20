@@ -27,6 +27,10 @@ Service NSW), with a short Chinese gloss the first time if helpful.
 Mention the effective date when the source gives one.
 - Cite the source after each claim as [[id]], using the article or section id shown in the \
 knowledge base.
+- Some articles list attachments (blank templates, forms) as `attachment: [[file:name]] title`. \
+When the clerk asks for one, or needs one to do what the answer describes, offer it by writing \
+its [[file:name]] marker exactly; the clerk gets a download link. Only offer attachments that \
+are listed.
 - If the knowledge base does not answer the question, or only partly answers it, say so \
 plainly and do not fill the gap from general knowledge. Suggest the clerk check with a \
 senior colleague or the official source.
@@ -38,6 +42,7 @@ Rewrite the clerk's latest question as a short English keyword search query for 
 registration knowledge base. Use the glossary to map Chinese or informal terms to the official \
 English terms. Resolve references to earlier turns. Output only the query."""
 
+_FILE = re.compile(r"\[\[file:([^\]\s]+)\]\]")
 _SOURCES = re.compile(r"^\s*SOURCES:\s*(.*)$", re.MULTILINE | re.IGNORECASE)
 
 
@@ -49,6 +54,7 @@ class Answer:
     mode: str
     search_query: str | None = None
     cost_usd: float = 0.0
+    files: list[str] = field(default_factory=list)  # attachment file names offered in the answer
 
 
 @dataclass
@@ -152,8 +158,10 @@ class QAService:
             if raw.upper() != "NONE":
                 valid = set(context.cite_ids)
                 sources = [s.strip(" []") for s in raw.split(",") if s.strip(" []") in valid]
+        allowed = set(context.files)
+        files = list(dict.fromkeys(f for f in _FILE.findall(text) if f in allowed))
         return Answer(text=text, sources=sources, covered=bool(sources),
-                      mode=context.mode, search_query=search_query)
+                      mode=context.mode, search_query=search_query, files=files)
 
     def _log_gap(self, question: str, collection: str) -> None:
         if not self.gaps_log:

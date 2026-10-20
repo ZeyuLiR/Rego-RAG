@@ -21,6 +21,8 @@
   .me { background:var(--me); align-self:flex-end; max-width:85%; }
   .meta { color:var(--muted); font-size:13px; margin-top:6px; white-space:normal; }
   .warn { color:#b25000; }
+  .files { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; white-space:normal; }
+  .file { display:inline-block; padding:6px 12px; border:1px solid var(--accent); border-radius:8px; color:var(--accent); text-decoration:none; font-size:14px; }
   form { display:flex; gap:8px; position:sticky; bottom:0; background:var(--bg); padding:12px 0; }
   textarea { flex:1; resize:vertical; min-height:44px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); font:inherit; }
   button { padding:0 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
@@ -67,7 +69,17 @@ async function ask(question, retrieval, showTag) {
     box.textContent = '';
     if (showTag) { const t = document.createElement('div'); t.className = 'tag'; t.textContent = MODES[retrieval]; box.appendChild(t); }
     if (!r.ok) { box.appendChild(document.createTextNode(data.detail || '出错了')); box.classList.add('warn'); return null; }
-    box.appendChild(document.createTextNode(data.answer));
+    const files = data.files || {};
+    box.appendChild(document.createTextNode(data.answer.replace(/\[\[file:([^\]\s]+)\]\]/g,
+      (m, name) => files[name] ? '「' + files[name].title + '」' : '')));
+    if (Object.keys(files).length) {
+      const row = document.createElement('div'); row.className = 'files';
+      for (const f of Object.values(files)) {
+        const a = document.createElement('a'); a.className = 'file'; a.href = f.url; a.download = '';
+        a.textContent = '下载：' + f.title; row.appendChild(a);
+      }
+      box.appendChild(row);
+    }
     const meta = document.createElement('div'); meta.className = 'meta';
     const srcs = Object.entries(data.sources).map(([id, s]) => s.title + '（' + s.path + '）');
     meta.textContent = (data.covered ? '来源：' + srcs.join('；') : '知识库未覆盖这个问题，已记录待补充。')

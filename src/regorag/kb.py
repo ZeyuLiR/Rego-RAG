@@ -2,6 +2,8 @@
 
 Layout: kb/<collection>/<category>/<article>.md. The Markdown is the single source
 of truth; everything the AI reads (sections, chunks, indexes) is derived from it.
+Files clerks may need as-is (blank templates, forms) live in kb/<collection>/files/ and
+are listed in an article's `attachments`; the assistant can hand them out in answers.
 Files whose name starts with "_" (templates) and files with no `id` in their
 front matter (landing pages such as index.md) are not articles.
 """
@@ -24,6 +26,27 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
+_FILE_NAME = re.compile(r"^[\w][\w.-]*$")
+
+
+class Attachment(BaseModel):
+    file: str  # name inside kb/<collection>/files/
+    title: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.title or self.file
+
+
+def safe_file_name(name: str) -> str:
+    """A stable, URL-safe name for a stored attachment: 'DEREGO LETTER - template.docx' ->
+    'derego-letter-template.docx'."""
+    stem, dot, ext = Path(name).name.rpartition(".") if "." in Path(name).name else (Path(name).name, "", "")
+    stem = re.sub(r"[\W_]+", "-", stem.lower()).strip("-") or "file"
+    ext = re.sub(r"[^a-z0-9]", "", ext.lower())
+    return f"{stem}.{ext}" if dot and ext else stem
+
+
 class ArticleMeta(BaseModel):
     id: str
     title: str
@@ -38,6 +61,7 @@ class ArticleMeta(BaseModel):
     version: int = 1
     reviewed_by: str | None = None
     reviewed_at: dt.date | None = None
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -109,6 +133,8 @@ class Article:
             header.append(f"effective_from: {m.effective_from.isoformat()}")
         if m.sources:
             header.append(f"sources: {', '.join(m.sources)}")
+        for a in m.attachments:
+            header.append(f"attachment: [[file:{a.file}]] {a.label}")
         return "\n".join(header) + "\n\n" + self.body.strip() + "\n</article>"
 
 
@@ -140,6 +166,9 @@ def parse_article(path: Path, collection: str) -> Article | None:
         raise KBError(f"{path}: {exc}") from exc
     if not _ID.match(meta.id):
         raise KBError(f"{path}: id '{meta.id}' must be lowercase letters, digits and dashes")
+    for a in meta.attachments:
+        if not _FILE_NAME.match(a.file):
+            raise KBError(f"{path}: attachment '{a.file}' must be a plain file name in files/")
     return Article(meta=meta, collection=collection, path=path, body=match.group(2))
 
 
@@ -152,6 +181,14 @@ class KnowledgeBase:
 
     def live(self, collection: str, today: dt.date | None = None) -> list[Article]:
         return [a for a in self.collection(collection) if a.is_live(today)]
+
+    def attachment(self, collection: str, name: str, today: dt.date | None = None) -> Attachment | None:
+        """An attachment that a live article in this collection lists (others are not served)."""
+        for a in self.live(collection, today):
+            for att in a.meta.attachments:
+                if att.file == name:
+                    return att
+        return None
 
     def get(self, article_id: str) -> Article | None:
         return next((a for a in self.articles if a.id == article_id), None)
@@ -176,6 +213,10 @@ def load_kb(kb_dir: Path) -> KnowledgeBase:
             continue
         if article:
             articles.append(article)
+            for att in article.meta.attachments:
+                if not (kb_dir / article.collection / "files" / att.file).is_file():
+                    errors.append(f"{path}: attachment {att.file} not found in "
+                                  f"{article.collection}/files/")
 
     seen: dict[str, Path] = {}
     for article in articles:

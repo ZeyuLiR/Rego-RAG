@@ -83,6 +83,10 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       restores one proposal per file. The owner asked for related files to be considered together.
 - [x] Windows: Claude Code via npm is a `claude.cmd` shim; `ClaudeCodeClient.command()` runs the
       bundled `claude.exe` (or node + cli.js). Output decoded as UTF-8. Owner runs Windows.
+- [x] Attachments: blank templates/forms live in `kb/<collection>/files/`, listed in an article's
+      `attachments` front matter. Extraction proposes `attach_files` (never filled-in examples);
+      apply copies them from the proposal's `originals/`. Answers offer `[[file:name]]`, the chat
+      shows download buttons, `/files/<collection>/<name>` serves only files of live articles.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`

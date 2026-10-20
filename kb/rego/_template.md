@@ -8,6 +8,10 @@ effective_from: 2026-01-01
 review_by: 2027-01-01
 owner: Zeyu
 sources: []
+# Blank templates/forms clerks can download; the files live in kb/rego/files/.
+# attachments:
+#   - file: derego-letter-template.docx
+#     title: De-registration letter template
 version: 1
 ---
 

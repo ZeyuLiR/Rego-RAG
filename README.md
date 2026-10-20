@@ -13,6 +13,7 @@ rego clerk 用中文或英文提问，助手只根据**审核过的知识库**�
 | 命令行提问 | `regorag ask "外州车转入需要什么材料？"` |
 | 网页聊天（clerk 用）| `regorag serve`，浏览器打开 http://127.0.0.1:8000 |
 | **导入与审核网页**：拖入多个文件、粘贴邮件文字或写一句说明，这一批会放在一起综合整理，整理后在同一页通过或驳回 | `regorag serve`，打开 http://127.0.0.1:8000/import |
+| **附件**：空白模板、表格随资料一起导入，审核通过后存进 `kb/<知识库>/files/`；clerk 提问时助手会给出下载按钮 | 导入页自动识别，或在文章 front matter 的 `attachments` 里登记 |
 | 命令行导入（同样的流程，多个文件一起看）| `regorag import 文件1.pdf 文件2.eml --note "都是 de-rego 流程"`（`--separate` 分开整理）|
 | 审核通过提案并发布 | `regorag apply inbox/<提案文件夹> --reviewer Zeyu` |
 | 直接发布手写的草稿 | `regorag publish kb/rego/.../xxx.md --reviewer Zeyu` |

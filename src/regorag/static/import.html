@@ -233,6 +233,7 @@ function renderProposal(p) {
     card.append(h, el('div', null, c.summary_zh));
     if (c.effective_from) card.append(el('div', 'muted', '生效日期：' + c.effective_from));
     if ((p.sources || []).length > 1 && (c.source_files || []).length) card.append(el('div', 'muted', '依据：' + c.source_files.join('、')));
+    if ((c.attach_files || []).length) card.append(el('div', 'muted', '存为附件，clerk 提问时可以下载：' + c.attach_files.join('、')));
     for (const q of c.evidence || []) card.append(el('blockquote', null, q));
     if (c.draft != null) {
       const d = el('details'); d.append(el('summary', null, '查看或修改草稿'));

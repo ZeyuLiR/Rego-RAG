@@ -44,6 +44,7 @@ class Context:
     text: str  # what goes into the prompt
     cite_ids: tuple[str, ...]  # article ids or section anchors the answer may cite
     scores: tuple[float, ...] = ()  # one per cite id for section search; empty for full
+    files: tuple[str, ...] = ()  # attachments the answer may hand out ([[file:name]])
 
 
 class Retriever(Protocol):
@@ -60,7 +61,8 @@ class FullContextRetriever:
         self._text = "\n\n".join(a.render_for_model() for a in self.articles)
 
     def retrieve(self, query: str) -> Context:
-        return Context(self.mode, self._text, tuple(a.id for a in self.articles))
+        return Context(self.mode, self._text, tuple(a.id for a in self.articles),
+                       files=tuple(f.file for a in self.articles for f in a.meta.attachments))
 
 
 class BM25Retriever:
@@ -106,14 +108,16 @@ def _section_text(articles: dict[str, Article], s: Section) -> str:
 
 def _section_context(mode: str, articles: dict[str, Article], sections: list[Section],
                      hits: list[tuple[float, int]]) -> Context:
-    parts = []
+    parts, files = [], []
     for _, i in hits:
         s = sections[i]
-        title = articles[s.article_id].meta.title
-        parts.append(f"<section id=\"{s.anchor}\" article=\"{title}\" path=\""
-                     f"{' > '.join(s.heading_path)}\">\n{s.text}\n</section>")
+        meta = articles[s.article_id].meta
+        attached = "".join(f"\nattachment: [[file:{a.file}]] {a.label}" for a in meta.attachments)
+        files += [a.file for a in meta.attachments if a.file not in files]
+        parts.append(f"<section id=\"{s.anchor}\" article=\"{meta.title}\" path=\""
+                     f"{' > '.join(s.heading_path)}\">\n{s.text}{attached}\n</section>")
     return Context(mode, "\n\n".join(parts), tuple(sections[i].anchor for _, i in hits),
-                   tuple(round(sc, 4) for sc, _ in hits))
+                   tuple(round(sc, 4) for sc, _ in hits), tuple(files))
 
 
 class VectorRetriever:
