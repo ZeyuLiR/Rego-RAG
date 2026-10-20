@@ -115,6 +115,17 @@ src/regorag/                               代码
 
 向量索引按小节内容的哈希缓存，发布新文章后只为改动的小节重新计算。现在资料少，用一个 JSON 文件就够；以后资料多了可以在 `vectors.py` 的 `VectorStore` 后面换成 LanceDB 或 pgvector，问答代码不用改。
 
+## 聊天记录存在哪
+
+问答页的历史对话按 clerk 填的名字保存在服务器上，数据库由 `.env` 里的 `REGORAG_CHAT_DB` 决定：
+
+| 设置 | 说明 |
+|---|---|
+| `sqlite:///data/chats.db`（默认） | 一个文件，Python 自带，不用安装；备份就是复制这个文件 |
+| `postgresql://用户:密码@主机/库名` | 先 `.venv/bin/pip install -e ".[postgres]"`；适合共享服务器、多人同时使用 |
+
+改完这一行重启即可，表会自动建好（换库时旧记录不会自动搬过去）。要接其他数据库，在 `src/regorag/chats.py` 里实现 `ChatStore` 的四个方法即可。
+
 ## 用量与费用
 
 每次调用（两种方式都算）都记入 `data/usage.jsonl`（估算费用）。`REGORAG_MONTHLY_BUDGET_USD` 设定月度上限，

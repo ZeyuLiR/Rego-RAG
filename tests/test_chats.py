@@ -26,3 +26,50 @@ def test_chat_history_is_kept_on_the_server_per_name(workspace):
     assert http.get("/api/chats/c1", params={"user": "Bob"}).status_code == 200
     assert http.get("/api/chats", params={"user": " "}).status_code == 400
     assert (workspace.usage_log.parent / "chats.db").is_file()
+
+
+import os
+import sqlite3
+
+import pytest
+
+from regorag.chats import SQLiteChatStore, open_chat_store
+
+PG_URL = os.environ.get("REGORAG_TEST_POSTGRES_URL")
+
+
+@pytest.fixture(params=["sqlite", "postgresql"])
+def store(request, tmp_path):
+    if request.param == "sqlite":
+        return open_chat_store("sqlite:///data/chats.db", tmp_path)
+    if not PG_URL:
+        pytest.skip("set REGORAG_TEST_POSTGRES_URL to test PostgreSQL")
+    s = open_chat_store(PG_URL, tmp_path)
+    s._run("DELETE FROM chats")
+    return s
+
+
+def test_every_store_behaves_the_same(store):
+    store.save("Amy", "c1", "一", [{"role": "user", "content": "外州车？"}])
+    store.save("Amy", "c2", "二", [])
+    store.save("Bob", "c1", "Bob", [])
+    assert [c["id"] for c in store.list("Amy")] == ["c2", "c1"]
+    assert store.get("Amy", "c1")["turns"] == [{"role": "user", "content": "外州车？"}]
+    store.save("Amy", "c1", "一改", [])
+    assert [(c["id"], c["title"]) for c in store.list("Amy")] == [("c1", "一改"), ("c2", "二")]
+    store.delete("Amy", "c1")
+    assert store.get("Amy", "c1") is None and store.get("Bob", "c1")["title"] == "Bob"
+
+
+def test_unknown_database_url_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="REGORAG_CHAT_DB"):
+        open_chat_store("mysql://x/y", tmp_path)
+
+
+def test_first_version_sqlite_file_is_upgraded(tmp_path):
+    path = tmp_path / "chats.db"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE chats (user TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, "
+                   "updated REAL NOT NULL, turns TEXT NOT NULL, PRIMARY KEY (user, id))")
+        db.execute("INSERT INTO chats VALUES ('Amy', 'c1', 'old', 1, '[]')")
+    assert SQLiteChatStore(path).list("Amy")[0]["title"] == "old"

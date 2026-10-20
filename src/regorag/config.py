@@ -37,6 +37,8 @@ class Settings:
     retrieval: str = "auto"  # auto | full | bm25 | vector | hybrid
     embed_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     vector_dir: Path = field(default_factory=lambda: REPO_ROOT / "data" / "vectors")
+    # Chat history database: sqlite:///<path relative to root> or postgresql://...
+    chat_db: str = "sqlite:///data/chats.db"
     # When set, the import and review pages require this token. Set it before the web
     # server is reachable by anyone other than reviewers.
     admin_token: str = ""
@@ -66,4 +68,5 @@ class Settings:
             retrieval=env.get("REGORAG_RETRIEVAL", cls.retrieval),
             embed_model=env.get("REGORAG_EMBED_MODEL", cls.embed_model),
             vector_dir=Path(env.get("REGORAG_VECTOR_DIR", root / "data" / "vectors")),
+            chat_db=env.get("REGORAG_CHAT_DB", cls.chat_db),
         )

@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from .app import build_app
-from .chats import ChatStore
+from .chats import ChatStore, open_chat_store
 from .importer import ALLOWED_SUFFIXES, MAX_FILE_BYTES, ImportQueue
 from .ingest import (Source, apply_proposal, close_proposal, list_proposals, pasted_source_name,
                      propose_batch, proposal_folder, read_sources, save_draft,
@@ -152,7 +152,8 @@ def create_app(regorag_app=None) -> FastAPI:
 
     def chats() -> ChatStore:
         if "store" not in chat_state:
-            chat_state["store"] = ChatStore(get().settings.usage_log.parent / "chats.db")
+            settings = get().settings
+            chat_state["store"] = open_chat_store(settings.chat_db, settings.root)
         return chat_state["store"]
 
     def clean(user: str, chat_id: str = "x") -> str:
