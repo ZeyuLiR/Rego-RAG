@@ -39,9 +39,12 @@ def update() -> None:
         if git("pull", "--ff-only", "-q").returncode != 0:
             # Approving proposals commits kb/ locally, so a plain fast-forward is often not
             # possible: replay those local commits on top of the new version instead.
-            if git("pull", "--rebase", "--autostash", "-q").returncode != 0:
+            r = git("pull", "--rebase", "--autostash", "-q")
+            if r.returncode != 0:
                 git("rebase", "--abort")
-                say("没能自动更新到最新版本（网络问题或改动冲突），继续用当前版本启动。")
+                detail = (r.stderr or r.stdout).strip().splitlines()
+                say("没能自动更新到最新版本，继续用当前版本启动。原因："
+                    + (detail[0] if detail else "未知") )
     except subprocess.TimeoutExpired:
         say("更新超时，继续用当前版本启动。")
     try:
