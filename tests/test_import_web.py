@@ -17,31 +17,42 @@ PROPOSAL = Proposal(source_summary_zh="新增地址证明要求。", changes=[
 
 
 def client_for(settings, proposal=PROPOSAL):
-    api = create_app(build_app(settings, client=FakeClient(parsed=proposal)))
-    return TestClient(api), api.state.import_queue
+    fake = FakeClient(parsed=proposal)
+    api = create_app(build_app(settings, client=fake))
+    http = TestClient(api)
+    http.fake = fake
+    return http, api.state.import_queue
 
 
-def test_drag_files_and_paste_text_then_approve(workspace, tmp_path):
+FILES = [("files", ("notice.txt", b"Interstate vehicles need proof of address.", "text/plain")),
+         ("files", ("memo.md", b"# Memo\nSame thing.", "text/markdown"))]
+
+
+def test_files_and_note_are_read_together_then_approved(workspace, tmp_path):
     http, queue = client_for(workspace)
-    r = http.post("/api/import",
-                  files=[("files", ("notice.txt", b"Interstate vehicles need proof of address.", "text/plain")),
-                         ("files", ("memo.md", b"# Memo\nSame thing.", "text/markdown"))],
-                  data={"text": "Subject: Address rule\n\nCall 0412 345 678 about proof of address.",
-                        "collection": "rego"})
-    assert r.status_code == 200 and len(r.json()["jobs"]) == 3
+    r = http.post("/api/import", files=FILES,
+                  data={"text": "Subject: Address rule\n\nBoth files are about the new address rule. "
+                                "Call 0412 345 678.", "collection": "rego"})
+    assert r.status_code == 200 and len(r.json()["jobs"]) == 1
     queue.wait()
     jobs = http.get("/api/import/jobs").json()["jobs"]
-    assert {j["status"] for j in jobs} == {"done"}, jobs
-    assert {j["name"] for j in jobs} == {"notice.txt", "memo.md", "address-rule.txt"}
+    assert [(j["name"], j["status"]) for j in jobs] == [("notice.txt + memo.md + 说明", "done")], jobs
 
-    props = http.get("/api/proposals").json()["proposals"]
-    assert len(props) == 3
-    pasted = next(p for p in props if p["source"] == "address-rule.txt")
-    assert "0412" not in (workspace.inbox_dir / pasted["name"] / "source.md").read_text()
-    notice = next(p for p in props if p["source"] == "notice.txt")
-    assert (workspace.inbox_dir / notice["name"] / "original.txt").is_file()
+    # One request carrying both files and the note, with personal data removed.
+    (req,) = http.fake.requests
+    content = req["messages"][0]["content"]
+    assert content.startswith("<reviewer_note>") and "Both files are about" in content
+    assert '<source name="notice.txt">' in content and '<source name="memo.md">' in content
+    assert "0412" not in content
+
+    (notice,) = http.get("/api/proposals").json()["proposals"]
+    assert notice["source"] == "notice.txt + memo.md" and notice["sources"] == ["notice.txt", "memo.md"]
+    assert notice["name"].endswith("-address-rule")
+    folder = workspace.inbox_dir / notice["name"]
+    assert (folder / "originals" / "notice.txt").is_file() and (folder / "originals" / "memo.md").is_file()
+    assert "Both files are about" in (folder / "REVIEW.md").read_text()
     draft = notice["changes"][0]["draft"]
-    assert "status: draft" in draft
+    assert "status: draft" in draft and "- memo.md" in draft and "- notice.txt" in draft
 
     edited = draft.replace("A utility bill.", "A utility bill or bank statement.")
     assert http.put(f"/api/proposals/{notice['name']}/drafts/reg-proof-of-address",
@@ -53,8 +64,22 @@ def test_drag_files_and_paste_text_then_approve(workspace, tmp_path):
     published = (workspace.kb_dir / "rego/registration/reg-proof-of-address.md").read_text()
     assert "bank statement" in published and "reviewed_by: Zeyu" in published
     assert (workspace.inbox_dir / "_applied" / notice["name"]).is_dir()
-    assert len(http.get("/api/proposals").json()["proposals"]) == 2
+    assert http.get("/api/proposals").json()["proposals"] == []
     assert http.get("/api/health").json()["collections"]["rego"] == 3  # KB reloaded
+
+
+def test_separate_option_makes_one_proposal_per_item(workspace):
+    http, queue = client_for(workspace)
+    r = http.post("/api/import", files=FILES,
+                  data={"text": "Subject: Address rule\n\nCall 0412 345 678.", "collection": "rego",
+                        "separate": "true"})
+    assert len(r.json()["jobs"]) == 3
+    queue.wait()
+    assert {j["name"] for j in http.get("/api/import/jobs").json()["jobs"]} == {
+        "notice.txt", "memo.md", "address-rule.txt"}
+    pasted = next(p for p in http.get("/api/proposals").json()["proposals"] if p["source"] == "address-rule.txt")
+    assert "0412" not in (workspace.inbox_dir / pasted["name"] / "source.md").read_text()
+    assert all("<reviewer_note>" not in r["messages"][0]["content"] for r in http.fake.requests)
 
 
 def test_reject_archives_proposal(workspace):

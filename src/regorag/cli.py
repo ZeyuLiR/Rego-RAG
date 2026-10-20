@@ -108,14 +108,17 @@ def cmd_index(args, settings: Settings) -> int:
 
 
 def cmd_import(args, settings: Settings) -> int:
-    from .ingest import propose
+    from .ingest import propose_batch, read_sources
 
     app = build_app(settings)
     coll = app.collections[args.collection]
-    for f in args.files:
-        folder = propose(Path(f), app.kb, args.collection, app.llm, settings.extract_model,
-                         coll.template(), list(coll.categories), settings.inbox_dir)
-        print(f"{f} → 待审核：{folder / 'REVIEW.md'}")
+    paths = [Path(f) for f in args.files]
+    batches = [[p] for p in paths] if args.separate else [paths]
+    for batch in batches:
+        folder = propose_batch(read_sources(batch), args.note or "", app.kb, args.collection, app.llm,
+                               settings.extract_model, coll.template(), list(coll.categories),
+                               settings.inbox_dir)
+        print(f"{' + '.join(p.name for p in batch)} → 待审核：{folder / 'REVIEW.md'}")
     return 0
 
 
@@ -213,9 +216,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--collection", default="rego")
     s.set_defaults(fn=cmd_index)
 
-    s = sub.add_parser("import", help="从邮件/PDF/Word 生成待审核的修改提案")
+    s = sub.add_parser("import", help="从邮件/PDF/Word 生成待审核的修改提案（多个文件放在一起看）")
     s.add_argument("files", nargs="+")
     s.add_argument("--collection", default="rego")
+    s.add_argument("--note", help="说明这批资料的关系或重点，例如“这几份都是 de-rego 流程”")
+    s.add_argument("--separate", action="store_true", help="每个文件单独整理")
     s.set_defaults(fn=cmd_import)
 
     s = sub.add_parser("apply", help="审核通过一个提案文件夹，写入知识库并发布")

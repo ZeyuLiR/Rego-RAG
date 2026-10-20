@@ -77,6 +77,12 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       install incl. `[vector]`, `.env`, `git pull --ff-only`, `serve --open` on a free port).
       Chinese tutorial: https://claude.ai/code/artifact/e4d2d04d-58c0-4d4d-a187-412feef23395
       (keep it in step with start-up or UI changes). The owner wants usage and startup as simple as possible.
+- [x] Batch import: files and pasted text submitted together are extracted in one call
+      (`ingest.propose_batch`); the pasted text is a `<reviewer_note>` on how they relate. One
+      proposal folder per batch (`originals/`, per-change `source_files`). "分开整理" / `--separate`
+      restores one proposal per file. The owner asked for related files to be considered together.
+- [x] Windows: Claude Code via npm is a `claude.cmd` shim; `ClaudeCodeClient.command()` runs the
+      bundled `claude.exe` (or node + cli.js). Output decoded as UTF-8. Owner runs Windows.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`

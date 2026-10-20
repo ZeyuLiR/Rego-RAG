@@ -20,8 +20,8 @@ from pydantic import BaseModel
 
 from .app import build_app
 from .importer import ALLOWED_SUFFIXES, MAX_FILE_BYTES, ImportQueue
-from .ingest import (apply_proposal, close_proposal, list_proposals, pasted_source_name, propose,
-                     propose_text, proposal_folder, save_draft)
+from .ingest import (Source, apply_proposal, close_proposal, list_proposals, pasted_source_name,
+                     propose_batch, proposal_folder, read_sources, save_draft)
 from .kb import KBError, load_kb
 from .llm import RefusedError
 from .qa import Turn
@@ -145,7 +145,11 @@ def create_app(regorag_app=None) -> FastAPI:
 
     @api.post("/api/import", dependencies=admin)
     async def start_import(files: list[UploadFile] = File(default=[]), text: str = Form(default=""),
-                           collection: str = Form(default="rego")) -> dict:
+                           collection: str = Form(default="rego"),
+                           separate: bool = Form(default=False)) -> dict:
+        """Files and pasted text sent together are read together as one batch, with the
+        text as the reviewer's note on how they relate (or as the source when there are
+        no files). `separate` restores one proposal per file."""
         a = get()
         if collection not in a.collections:
             raise HTTPException(404, f"没有这个知识库：{collection}")
@@ -171,10 +175,22 @@ def create_app(regorag_app=None) -> FastAPI:
                         template=coll.template(), categories=list(coll.categories),
                         inbox_dir=a.settings.inbox_dir)
 
-        jobs = [queue.submit(p.name, lambda p=p: propose(p, **args())) for p in staged]
-        if text.strip():
-            name = pasted_source_name(text)
-            jobs.append(queue.submit(name, lambda: propose_text(name, text, **args())))
+        def batch(paths: list[Path], note: str = "", pasted: str = ""):
+            def work():
+                sources = read_sources(paths)
+                if pasted:
+                    sources.append(Source(pasted_source_name(pasted), pasted))
+                return propose_batch(sources, note, **args())
+            return work
+
+        text = text.strip()
+        if separate or not staged:
+            jobs = [queue.submit(p.name, batch([p])) for p in staged]
+            if text:
+                jobs.append(queue.submit(pasted_source_name(text), batch([], pasted=text)))
+        else:
+            label = " + ".join([p.name for p in staged] + (["说明"] if text else []))
+            jobs = [queue.submit(label, batch(staged, note=text))]
         return {"jobs": [j.id for j in jobs]}
 
     @api.get("/api/import/jobs", dependencies=admin)

@@ -37,6 +37,8 @@ a { color: var(--accent); }
 textarea, input[type=text], input[type=password], select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
 textarea { width: 100%; resize: vertical; }
 #paste { min-height: 110px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.note { border-left: 3px solid var(--line); padding-left: 10px; white-space: pre-wrap; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .row .grow { flex: 1 1 auto; }
 button { font: 500 14px var(--sans); border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 7px 14px; cursor: pointer; }
@@ -92,7 +94,8 @@ details textarea { font: 13px/1.5 var(--mono); min-height: 260px; margin-top: 8p
     </div>
     <input type="file" id="picker" multiple hidden>
     <div class="files" id="files"></div>
-    <textarea id="paste" placeholder="或者把邮件、通知的文字直接粘贴在这里（主题行会用作名字）"></textarea>
+    <textarea id="paste" placeholder="粘贴邮件或通知的文字；也可以写一句说明，例如“这几份都是 de-rego 流程用的：流程、信件模板和填好的例子”"></textarea>
+    <label class="muted check" id="sepRow" hidden><input type="checkbox" id="separate"> 每份资料分开整理（默认把这一批文件和文字放在一起看）</label>
     <div class="row">
       <label class="muted" for="collection">放进</label>
       <select id="collection"></select>
@@ -141,9 +144,12 @@ function renderStaged() {
   updateGo();
 }
 function updateGo() {
-  const n = staged.length + ($('paste').value.trim() ? 1 : 0);
+  const text = $('paste').value.trim() ? 1 : 0, n = staged.length + text;
+  const together = staged.length > 0 && n > 1 && !$('separate').checked;
+  $('sepRow').hidden = n < 2;
   $('go').disabled = n === 0;
-  $('go').textContent = n > 1 ? `开始整理（${n} 份）` : '开始整理';
+  $('go').textContent = together ? `一起整理（${staged.length} 个文件${text ? ' + 文字' : ''}）`
+    : n > 1 ? `分别整理（${n} 份）` : '开始整理';
 }
 function addFiles(list) { for (const f of list) if (!staged.some(s => s.name === f.name && s.size === f.size)) staged.push(f); renderStaged(); }
 const drop = $('drop');
@@ -157,6 +163,7 @@ drop.addEventListener('drop', (e) => addFiles(e.dataTransfer.files));
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => { e.preventDefault(); if (e.target !== drop && !drop.contains(e.target)) addFiles(e.dataTransfer.files); });
 $('paste').addEventListener('input', updateGo);
+$('separate').addEventListener('change', updateGo);
 
 $('go').onclick = async () => {
   $('importErr').textContent = ''; $('go').disabled = true;
@@ -164,9 +171,10 @@ $('go').onclick = async () => {
   staged.forEach(f => fd.append('files', f, f.name));
   fd.append('text', $('paste').value);
   fd.append('collection', $('collection').value);
+  fd.append('separate', $('separate').checked ? 'true' : 'false');
   try {
     await call('/api/import', { method: 'POST', body: fd });
-    staged = []; $('paste').value = ''; renderStaged();
+    staged = []; $('paste').value = ''; $('separate').checked = false; renderStaged();
     pollJobs();
   } catch (e) { $('importErr').textContent = e.message; updateGo(); }
 };
@@ -207,9 +215,11 @@ function renderProposal(p) {
   const wrap = el('div', 'proposal');
   const head = el('div', 'row');
   head.append(el('strong', 'grow', p.source), el('span', 'muted', p.name.slice(0, 10)));
-  wrap.append(head, el('div', null, p.source_summary_zh));
+  wrap.append(head);
+  if (p.note) wrap.append(el('div', 'note muted', '说明：' + p.note));
+  wrap.append(el('div', null, p.source_summary_zh));
   const picks = [];
-  if (!p.changes.length) wrap.append(el('div', 'muted', '模型认为这份资料不需要修改知识库。可以直接驳回归档。'));
+  if (!p.changes.length) wrap.append(el('div', 'muted', '模型认为这批资料不需要修改知识库。可以直接驳回归档。'));
   for (const c of p.changes) {
     const card = el('div', 'change');
     const h = el('div', 'change-head');
@@ -222,6 +232,7 @@ function renderProposal(p) {
     h.append(label, el('span', 'id', c.article_id));
     card.append(h, el('div', null, c.summary_zh));
     if (c.effective_from) card.append(el('div', 'muted', '生效日期：' + c.effective_from));
+    if ((p.sources || []).length > 1 && (c.source_files || []).length) card.append(el('div', 'muted', '依据：' + c.source_files.join('、')));
     for (const q of c.evidence || []) card.append(el('blockquote', null, q));
     if (c.draft != null) {
       const d = el('details'); d.append(el('summary', null, '查看或修改草稿'));
