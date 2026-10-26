@@ -27,6 +27,7 @@ def test_figures_match_in_any_written_form():
     assert "duration:14:days" in keys("a 14-day free trial")
     assert keys("每月 8 美元") == keys("US$8 per month") == keys("USD 8") == keys("8元") == {"money:8"}
     assert keys("€12.50") == keys("12.5 欧元") == {"money:12.5"}
+    assert keys("一两天内回复") == set() and "duration:3:days" in keys("三天内")  # a range is not a figure
 
 
 def test_unverified_lists_figures_missing_from_the_sources():

@@ -89,7 +89,12 @@ def _normalise_words(text: str) -> str:
                   r"(?:days?|weeks?|months?|years?|hours?)\b)",
                   lambda m: _WORDS[m.group(1).lower()], text, flags=re.I)
     def zh(m: re.Match) -> str:
-        s = m.group(1)
+        try:
+            return _zh_number(m.group(1))
+        except KeyError:  # a range such as 一两天 / 三四个月: leave it as written
+            return m.group(1)
+
+    def _zh_number(s: str) -> str:
         if s == "十":
             return "10"
         if s.startswith("十"):
