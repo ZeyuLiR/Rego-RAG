@@ -24,6 +24,9 @@ def test_figures_match_in_any_written_form():
     assert "duration:14:days" in keys("within 14 days")
     assert "duration:5:years" in keys("车龄超过五年")
     assert "date:2026-07-01" in keys("01/07/2026")
+    assert "duration:14:days" in keys("a 14-day free trial")
+    assert keys("每月 8 美元") == keys("US$8 per month") == keys("USD 8") == keys("8元") == {"money:8"}
+    assert keys("€12.50") == keys("12.5 欧元") == {"money:12.5"}
 
 
 def test_unverified_lists_figures_missing_from_the_sources():

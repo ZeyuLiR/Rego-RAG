@@ -5,8 +5,9 @@ most, so after every answer each such figure is looked up in the cited articles.
 that cannot be found is not hidden: the clerk is told to have it checked, and the answer
 goes on the reviewers' list so the knowledge base can be corrected. No model call is made.
 
-Figures are compared in a normal form, so "$45" matches "$45.00", "1 July 2026" matches
-"2026年7月1日", and "14 天" matches "14 days" or "fourteen days".
+Figures are compared in a normal form, so "$45" matches "$45.00" (or "45 美元": amounts are
+compared without their currency), "1 July 2026" matches "2026年7月1日", and "14 天" matches
+"14 days", "14-day" or "fourteen days".
 """
 
 from __future__ import annotations
@@ -47,10 +48,11 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("date_slash", re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")),
     ("month", re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d)")),
     ("month_en", re.compile(r"\b" + _MONTH + r"\s+(\d{4})\b", re.I)),
-    ("money", re.compile(r"(?:A?\$|AUD\s?)\s?(\d[\d,]*(?:\.\d+)?)")),
-    ("money", re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(?:澳元|澳币|dollars?)", re.I)),
+    ("money", re.compile(r"(?:A?\$|(?:AUD|USD|RMB|CNY|EUR)\s?|[¥￥€£])\s?(\d[\d,]*(?:\.\d+)?)")),
+    ("money", re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(?:澳元|澳币|美元|美金|欧元|英镑|人民币|元|块|dollars?|euros?"
+                         r"|AUD|USD|RMB|CNY|EUR)", re.I)),
     ("percent", re.compile(_NUM + r"\s?%")),
-    ("duration", re.compile(_NUM + r"\s*(" + "|".join(p for p, _ in _UNITS) + r")", re.I)),
+    ("duration", re.compile(_NUM + r"\s*-?\s*(" + "|".join(p for p, _ in _UNITS) + r")", re.I)),
     ("code", re.compile(r"\b(?:form|表格?)\s*([A-Z]*\d{2,6}[A-Z]?)\b", re.I)),
     ("code", re.compile(r"\b([A-Z]{1,4}\d{1,5}[A-Z]?)\b")),
 ]
