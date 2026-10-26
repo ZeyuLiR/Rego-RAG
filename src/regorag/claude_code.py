@@ -12,6 +12,7 @@ session, in an empty temporary directory: the model sees only the prompt we send
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -21,6 +22,12 @@ from types import SimpleNamespace
 
 class ClaudeCodeError(RuntimeError):
     pass
+
+
+def plan_env() -> dict[str, str]:
+    """The environment for `claude -p` without API credentials: with ANTHROPIC_API_KEY set,
+    Claude Code bills the API instead of the Claude plan this backend is meant to use."""
+    return {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
 
 
 def _system_text(system) -> str:
@@ -103,7 +110,7 @@ class ClaudeCodeClient:
                 # Claude Code speaks UTF-8; Windows would otherwise decode with the local code page.
                 proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
                                       encoding="utf-8", errors="replace", cwd=tmp,
-                                      timeout=self.timeout_s)
+                                      timeout=self.timeout_s, env=plan_env())
             except subprocess.TimeoutExpired as exc:
                 raise ClaudeCodeError(f"Claude Code 超过 {self.timeout_s} 秒没有回应") from exc
             except OSError as exc:

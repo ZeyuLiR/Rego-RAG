@@ -16,7 +16,8 @@ prompt = sys.stdin.read()
 system = open(args[args.index("--system-prompt-file") + 1], encoding="utf-8").read()
 log = os.environ["FAKE_CLAUDE_LOG"]
 with open(log, "a", encoding="utf-8") as f:
-    f.write(json.dumps({"args": args, "prompt": prompt, "system": system, "cwd": os.getcwd()}) + "\n")
+    f.write(json.dumps({"args": args, "prompt": prompt, "system": system, "cwd": os.getcwd(),
+                        "api_key": "ANTHROPIC_API_KEY" in os.environ}) + "\n")
 out = {"is_error": False, "stop_reason": "end_turn",
        "usage": {"input_tokens": 10, "output_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
 if "--json-schema" in args:
@@ -56,6 +57,14 @@ def test_qa_through_claude_code(workspace, fake_claude):
     rec = app.usage.records()[-1]
     assert rec.backend == "claude-code"
     assert app.usage.summary()["claude_code_calls"] == 1 and app.usage.month_total() == 0
+
+
+def test_claude_code_never_sees_an_api_key(fake_claude, monkeypatch):
+    # Claude Code would bill the API instead of the plan if it saw the key.
+    client, log = fake_claude
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    client.create(model="claude-opus-5-5", messages=[{"role": "user", "content": "hi"}])
+    assert calls(log)[0]["api_key"] is False
 
 
 def test_history_is_folded_into_one_prompt(workspace, fake_claude):
