@@ -41,7 +41,7 @@ from .review import ReviewPolicy, publish
 def read_document(path: Path) -> str:
     """Plain text / Markdown for any supported file."""
     suffix = path.suffix.lower()
-    if suffix in {".txt", ".md"}:
+    if suffix in {".txt", ".md", ".csv", ".json"}:
         return path.read_text(encoding="utf-8", errors="replace")
     if suffix == ".eml":
         return _read_eml(path)
@@ -129,10 +129,10 @@ class BatchProposal(BaseModel):
 
 
 EXTRACT_PROMPT = """\
-You maintain a reviewed knowledge base for rego (vehicle registration) clerks in NSW, Australia. \
-New source material has arrived: one or more documents (emails, notices, PDFs, Word files) \
-uploaded together, sometimes with a note from the reviewer. Work out what, if anything, it \
-changes in the knowledge base, and propose those changes for a human reviewer.
+You maintain a reviewed knowledge base. The <about> block describes what it is for and who uses it. \
+New source material has arrived: one or more documents (emails, notices, PDFs, Word files, chat or \
+social media conversations) uploaded together, sometimes with a note from the reviewer. Work out \
+what, if anything, it changes in the knowledge base, and propose those changes for a human reviewer.
 
 Rules:
 - Read all the sources together before deciding anything, then group the batch into topics: \
@@ -145,25 +145,28 @@ more than one topic. When nothing in the batch is relevant, return one topic wit
 - A <reviewer_note>, when present, is from the reviewer: it may say how the documents relate, \
 what event they concern or what to focus on. Follow it. If it also states facts, you may use \
 them, quoting the note as evidence.
+- Conversations (chat logs, email threads, social media messages): use what the organisation's \
+side stated or confirmed, and the questions that come up, not one-off opinions. Never record \
+anything about the individual people in them.
 - For templates and filled-in examples, describe what the form or letter is for, when it is \
 used and what must be filled in. Never copy a customer's details from an example.
-- When an uploaded file is a blank template or form that clerks will need to use or send, list \
-it in attach_files of the article it belongs to, so it is stored in the knowledge base and the \
-assistant can hand it to clerks. Mention it in the article's steps. Never attach a filled-in \
-example or anything containing a customer's details. If the reviewer note asks for a file to \
-be added to an existing article, propose an "update" of that article that keeps its content \
-and lists the file in attach_files.
+- When an uploaded file is a blank template or form that the knowledge base's users will need \
+to use or send, list it in attach_files of the article it belongs to, so it is stored in the \
+knowledge base and the assistant can hand it out. Mention it in the article. Never attach a \
+filled-in example or anything containing a customer's details. If the reviewer note asks for a \
+file to be added to an existing article, propose an "update" of that article that keeps its \
+content and lists the file in attach_files.
 - Only use what the sources say. Every change needs verbatim evidence quotes, and source_files \
 naming the sources it came from.
 - Prefer updating an existing article over creating a new one. Use "duplicate" when the source \
 adds nothing new, and "conflict" when it contradicts an article in a way you cannot resolve \
 (explain in summary_zh).
-- For "new" and "update", write the complete article body in English, keeping the template's \
-section order: When this applies, What you need, Steps, Fees, Exceptions and notes, Sources. \
-For an update, keep everything in the existing article that the source does not change.
-- Keep fees, dates and form numbers exactly as written. Never include personal details about \
-customers.
-- If the sources contain nothing relevant to rego work, return no changes.
+- For "new" and "update", write the complete article body in English, keeping the section \
+headings and order of the article template. For an update, keep everything in the existing \
+article that the source does not change.
+- Keep prices, fees, dates and form numbers exactly as written. Never include personal details \
+about customers.
+- If the sources contain nothing relevant to this knowledge base, return no changes.
 - Write title_zh, summary_zh and source_summary_zh in Chinese."""
 
 
@@ -210,8 +213,9 @@ def batch_name(sources: list[Source], note: str) -> str:
 
 def propose_batch(sources: list[Source], note: str, kb: KnowledgeBase, collection: str, llm: LLM,
                   model: str, template: str, categories: list[str], inbox_dir: Path,
-                  today: dt.date | None = None) -> list[Path]:
+                  today: dt.date | None = None, about: str = "") -> list[Path]:
     """Extract changes from several sources read together, plus an optional reviewer note.
+    `about` is the collection's description from config/collections.yaml.
 
     The model groups the batch into topics (distinct matters); each topic is written as its
     own proposal folder, so different matters are reviewed and approved separately."""
@@ -228,7 +232,8 @@ def propose_batch(sources: list[Source], note: str, kb: KnowledgeBase, collectio
         output_format=BatchProposal,
         system=[
             {"type": "text", "text": EXTRACT_PROMPT},
-            {"type": "text", "text": f"<categories>{', '.join(categories)}</categories>\n"
+            {"type": "text", "text": f"<about>\n{about.strip() or collection}\n</about>\n"
+                                     f"<categories>{', '.join(categories)}</categories>\n"
                                      f"<article_template>\n{template}\n</article_template>\n"
                                      f"<knowledge_base collection=\"{collection}\">\n{existing}\n"
                                      f"</knowledge_base>",
@@ -300,7 +305,7 @@ def write_proposal(proposal: Proposal, name: str, source_names: list[str], sourc
         if c.source_files:
             lines += [f"依据资料：{'、'.join(c.source_files)}", ""]
         if c.attach_files:
-            lines += [f"存为附件（clerk 可在问答中下载）：{'、'.join(c.attach_files)}", ""]
+            lines += [f"存为附件（问答中可下载）：{'、'.join(c.attach_files)}", ""]
         lines += ["原文依据：", ""] + [f"> {q}" for q in c.evidence] + [""]
         if c.action in {"new", "update"} and c.article_markdown:
             existing = kb.get(c.article_id)

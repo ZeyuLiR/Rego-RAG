@@ -332,7 +332,7 @@ def create_app(regorag_app=None) -> FastAPI:
         def args():  # read the KB at run time so earlier approvals are taken into account
             return dict(kb=a.kb, collection=collection, llm=a.llm, model=a.settings.extract_model,
                         template=coll.template(), categories=list(coll.categories),
-                        inbox_dir=a.settings.inbox_dir)
+                        inbox_dir=a.settings.inbox_dir, about=coll.about)
 
         def batch(paths: list[Path], note: str = "", pasted: str = ""):
             def work():

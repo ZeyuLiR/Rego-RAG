@@ -110,6 +110,11 @@ Phase 1 (Q&A over imported material) — code done, not yet run against the real
       answers on the same list. Eval set (`evals.py`, `eval/questions.yaml`, page `/eval`, CLI
       `regorag eval [--judge]`): several contributors, mainly the owner; scores cited/facts/refusal/
       figures (+ optional model judge); reports in `data/eval/`.
+- [x] `sales` collection enabled (2026-10-26): extraction is collection-aware (`about` in
+      `config/collections.yaml` goes into the extraction prompt; the rego specifics moved there),
+      `kb/sales/_template.md`, conversations (chat exports as .txt/.csv/.json or pasted text) are a
+      source type. The owner's social media agent (separate project, not in this repo) reads
+      `kb/sales/` through the `regorag` library and sends edited replies here as import text.
 - [ ] Owner installs and logs in to Claude Code locally, runs `regorag import` on the existing
       ~10-20 documents (or sends them to Claude to run the same pipeline)
 - [ ] Later: owner adds `.env` with an API key and sets `REGORAG_LLM_BACKEND=api`

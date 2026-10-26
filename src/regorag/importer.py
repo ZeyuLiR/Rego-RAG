@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 ALLOWED_SUFFIXES = {".pdf", ".docx", ".eml", ".msg", ".txt", ".md", ".html", ".htm",
-                    ".xlsx", ".pptx"}
+                    ".xlsx", ".pptx", ".csv", ".json"}
 MAX_FILE_BYTES = 25 * 1024 * 1024
 
 

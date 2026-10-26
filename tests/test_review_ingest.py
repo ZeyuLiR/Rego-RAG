@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from regorag.app import build_app
-from regorag.ingest import BatchProposal, Topic, ProposedChange, apply_proposal, propose, redact
+from regorag.ingest import (BatchProposal, Topic, ProposedChange, apply_proposal, propose, propose_batch,
+                            read_sources, redact)
 from regorag.kb import load_kb
 from regorag.review import Reviewer, ReviewPolicy, publish
 from conftest import FakeClient
@@ -82,3 +83,19 @@ def test_apply_refuses_unknown_reviewer(workspace, tmp_path):
     app = build_app(workspace, client=FakeClient())
     with pytest.raises(PermissionError):
         apply_proposal(folder, app.kb, workspace.kb_dir, app.policy, "Mallory")
+
+
+def test_extraction_is_told_which_collection_it_serves(workspace, tmp_path):
+    src = tmp_path / "chat.csv"
+    src.write_text("customer,Do you have a yearly plan?\nus,Yes: 20% off when paid yearly.\n")
+    client = FakeClient(parsed=BatchProposal(topics=[]))
+    app = build_app(workspace, client=client)
+    coll = app.collections["sales"]
+    assert coll.template_path.name == "_template.md" and "sales" in str(coll.template_path)
+    (folder,) = propose_batch(read_sources([src]), "", app.kb, "sales", app.llm, "claude-opus-5-5",
+                              coll.template(), list(coll.categories), workspace.inbox_dir,
+                              today=dt.date(2026, 10, 26), about=coll.about)
+    system = client.requests[0]["system"][1]["text"]
+    assert "product and sales knowledge base" in system and "Common questions" in system
+    assert "yearly plan" in client.requests[0]["messages"][0]["content"]
+    assert "rego" not in client.requests[0]["system"][0]["text"].lower()

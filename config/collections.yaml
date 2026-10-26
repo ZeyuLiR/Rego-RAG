@@ -1,12 +1,26 @@
 # One entry per knowledge base. Add a collection here and create kb/<name>/ to start a new one.
+# `about` tells the model that turns uploaded material into proposals what the collection is for.
 collections:
   rego:
     title: Rego 知识库
     description: NSW vehicle registration procedures for rego clerks
+    about: |
+      It serves rego (vehicle registration) clerks at a company in NSW, Australia. Sources are
+      mostly English notices, emails and procedure documents; clerks ask in Chinese. Articles
+      describe when a procedure applies, what the customer must provide, the steps, the fees and
+      the exceptions. Material unrelated to rego work is not relevant.
     categories: [registration, transfer, plates, fees, ctp-insurance, inspections, exceptions, faq, glossary]
     template: kb/rego/_template.md
   sales:
     title: Sales 知识库
-    description: Reserved for the future sales knowledge base
-    categories: [products, pricing, process, faq, glossary]
-    template: kb/rego/_template.md
+    description: Products, pricing and answers for customers and social media replies
+    about: |
+      It is the company's product and sales knowledge base. The social media assistant and sales
+      staff use it to answer customers and reply to messages and comments: products and
+      features, pricing and plans, FAQ, objections and how to answer them, customer stories the
+      company may share, the brand voice, and things that must not be said. Sources are product
+      documents, price sheets, website pages, internal notes and conversations with customers.
+      From conversations, turn recurring customer questions and the answers the company gave into
+      FAQ entries; never record anything about a specific customer.
+    categories: [products, pricing, faq, objections, cases, brand, process, glossary]
+    template: kb/sales/_template.md

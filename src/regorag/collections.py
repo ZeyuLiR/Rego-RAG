@@ -14,6 +14,7 @@ class Collection:
     title: str
     categories: tuple[str, ...]
     template_path: Path
+    about: str = ""  # what the collection is for and who uses it; given to extraction
 
     def template(self) -> str:
         return self.template_path.read_text(encoding="utf-8") if self.template_path.is_file() else ""
@@ -24,6 +25,7 @@ def load_collections(config_dir: Path, root: Path) -> dict[str, Collection]:
     return {
         name: Collection(name=name, title=c.get("title", name),
                          categories=tuple(c.get("categories", [])),
-                         template_path=root / c.get("template", f"kb/{name}/_template.md"))
+                         template_path=root / c.get("template", f"kb/{name}/_template.md"),
+                         about=c.get("about") or c.get("description", ""))
         for name, c in (data.get("collections") or {}).items()
     }
